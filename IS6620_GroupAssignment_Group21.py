@@ -11,6 +11,49 @@ from qdrant_client.http import models
 from fastembed import TextEmbedding
 
 
+# ------------------- API Key 加载（优先从 secrets / 环境变量） --------------------
+def load_api_keys():
+    """从 st.secrets 或环境变量加载 API Key，写入 st.session_state。"""
+    # DeepSeek
+    if "deepseek_api_key" not in st.session_state or not st.session_state.deepseek_api_key:
+        key = ""
+        try:
+            key = st.secrets.get("DEEPSEEK_API_KEY", "")
+        except Exception:
+            pass
+        if not key:
+            key = os.environ.get("DEEPSEEK_API_KEY", "")
+        if key:
+            st.session_state.deepseek_api_key = key
+
+    # Qdrant URL
+    if "qdrant_url" not in st.session_state or not st.session_state.qdrant_url:
+        val = ""
+        try:
+            val = st.secrets.get("QDRANT_URL", "")
+        except Exception:
+            pass
+        if not val:
+            val = os.environ.get("QDRANT_URL", "")
+        if val:
+            st.session_state.qdrant_url = val
+
+    # Qdrant API Key
+    if "qdrant_api_key" not in st.session_state or not st.session_state.qdrant_api_key:
+        key = ""
+        try:
+            key = st.secrets.get("QDRANT_API_KEY", "")
+        except Exception:
+            pass
+        if not key:
+            key = os.environ.get("QDRANT_API_KEY", "")
+        if key:
+            st.session_state.qdrant_api_key = key
+
+# 启动时加载
+load_api_keys()
+
+
 # ------------------- Page Config --------------------
 st.set_page_config(
     page_title="键盘出海内容自动化与审核平台",
@@ -156,45 +199,58 @@ st.title("⌨️ 键盘出海内容自动化与审核平台 (DeepSeek + Qdrant C
 with st.sidebar:
     st.header("⚙️ 配置")
 
-    st.markdown("##### 🤖 DeepSeek API 配置")
-    st.text_input(
-        "DeepSeek API Key",
-        type="password",
-        value=os.environ.get("DEEPSEEK_API_KEY", "") or st.secrets.get("DEEPSEEK_API_KEY", ""),
-        key="deepseek_api_key"
-    )
-    if st.button("🔌 测试 DeepSeek 连接", use_container_width=True):
-        test_result = call_deepseek([{"role": "user", "content": "Say 'test ok' in one word."}])
-        if test_result.startswith("❌"):
-            st.error(test_result)
-        else:
-            st.success("✅ DeepSeek 连接成功！")
+    # API Key 配置状态
+    deepseek_configured = bool(st.session_state.get("deepseek_api_key", ""))
+    qdrant_configured = bool(st.session_state.get("qdrant_url", "")) and bool(st.session_state.get("qdrant_api_key", ""))
 
-    st.divider()
-    st.markdown("##### 🌐 Qdrant 向量库配置")
-    st.text_input(
-        "Qdrant 集群 URL",
-        value=os.environ.get("QDRANT_URL", "") or st.secrets.get("QDRANT_URL", ""),
-        placeholder="https://xxx.cloud.qdrant.io:6333",
-        key="qdrant_url"
-    )
-    st.text_input(
-        "Qdrant API Key",
-        type="password",
-        value=os.environ.get("QDRANT_API_KEY", "") or st.secrets.get("QDRANT_API_KEY", ""),
-        key="qdrant_api_key"
-    )
-    if st.button("🔌 测试 Qdrant 连接", use_container_width=True):
-        from qdrant_client import QdrantClient
-        try:
-            test_client = QdrantClient(
-                url=st.session_state.qdrant_url,
-                api_key=st.session_state.qdrant_api_key,
-            )
-            test_client.get_collections()
-            st.success("✅ Qdrant 连接成功！")
-        except Exception as e:
-            st.error(f"❌ 连接失败: {e}")
+    if deepseek_configured:
+        st.success("✅ DeepSeek API 已配置")
+    else:
+        st.warning("⚠️ DeepSeek API 未配置")
+
+    if qdrant_configured:
+        st.success("✅ Qdrant 向量库已配置")
+    else:
+        st.warning("⚠️ Qdrant 向量库未配置")
+
+    # 高级设置（演示时隐藏）
+    with st.expander("🔧 高级设置（API Key 配置）", expanded=not (deepseek_configured and qdrant_configured)):
+        st.markdown("##### 🤖 DeepSeek API 配置")
+        st.text_input(
+            "DeepSeek API Key",
+            type="password",
+            key="deepseek_api_key"
+        )
+        if st.button("🔌 测试 DeepSeek 连接", use_container_width=True):
+            test_result = call_deepseek([{"role": "user", "content": "Say 'test ok' in one word."}])
+            if test_result.startswith("❌"):
+                st.error(test_result)
+            else:
+                st.success("✅ DeepSeek 连接成功！")
+
+        st.divider()
+        st.markdown("##### 🌐 Qdrant 向量库配置")
+        st.text_input(
+            "Qdrant 集群 URL",
+            placeholder="https://xxx.cloud.qdrant.io:6333",
+            key="qdrant_url"
+        )
+        st.text_input(
+            "Qdrant API Key",
+            type="password",
+            key="qdrant_api_key"
+        )
+        if st.button("🔌 测试 Qdrant 连接", use_container_width=True):
+            from qdrant_client import QdrantClient
+            try:
+                test_client = QdrantClient(
+                    url=st.session_state.qdrant_url,
+                    api_key=st.session_state.qdrant_api_key,
+                )
+                test_client.get_collections()
+                st.success("✅ Qdrant 连接成功！")
+            except Exception as e:
+                st.error(f"❌ 连接失败: {e}")
 
     st.divider()
     st.markdown("##### 📝 输入参数")
