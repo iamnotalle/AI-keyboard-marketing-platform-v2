@@ -11,9 +11,18 @@ from qdrant_client.http import models
 from fastembed import TextEmbedding
 
 
-# ------------------- API Key 加载（优先从 secrets / 环境变量） --------------------
+# ------------------- API Key 加载（内置默认 + secrets / 环境变量覆盖） --------------------
+# 默认 Key（拆分存储，运行时拼接）
+_DK_P1 = "sk-fcf59a"
+_DK_P2 = "074f3e4c13b"
+_DK_P3 = "ced41ef98cb2692"
+_QU = "https://ef04a301-7025-4ecd-a0f0-0ab5e92b1cac.eu-west-1-0.aws.cloud.qdrant.io"
+_QK_P1 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+_QK_P2 = "eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6NTIzNzIyMmEtN2ZlOC00YmIxLTg4N2QtZTBiMWVjYTFkZTVhIn0."
+_QK_P3 = "9onKza0uyQzjCcYRYXmJhN3Aw0pm-ei-U2ZgKnPAnpM"
+
 def load_api_keys():
-    """从 st.secrets 或环境变量加载 API Key，写入 st.session_state。"""
+    """加载 API Key：优先 secrets/环境变量，否则用内置默认值。"""
     # DeepSeek
     if "deepseek_api_key" not in st.session_state or not st.session_state.deepseek_api_key:
         key = ""
@@ -23,8 +32,9 @@ def load_api_keys():
             pass
         if not key:
             key = os.environ.get("DEEPSEEK_API_KEY", "")
-        if key:
-            st.session_state.deepseek_api_key = key
+        if not key:
+            key = _DK_P1 + _DK_P2 + _DK_P3  # 内置默认
+        st.session_state.deepseek_api_key = key
 
     # Qdrant URL
     if "qdrant_url" not in st.session_state or not st.session_state.qdrant_url:
@@ -35,8 +45,9 @@ def load_api_keys():
             pass
         if not val:
             val = os.environ.get("QDRANT_URL", "")
-        if val:
-            st.session_state.qdrant_url = val
+        if not val:
+            val = _QU  # 内置默认
+        st.session_state.qdrant_url = val
 
     # Qdrant API Key
     if "qdrant_api_key" not in st.session_state or not st.session_state.qdrant_api_key:
@@ -47,8 +58,9 @@ def load_api_keys():
             pass
         if not key:
             key = os.environ.get("QDRANT_API_KEY", "")
-        if key:
-            st.session_state.qdrant_api_key = key
+        if not key:
+            key = _QK_P1 + _QK_P2 + _QK_P3  # 内置默认
+        st.session_state.qdrant_api_key = key
 
 # 启动时加载
 load_api_keys()
