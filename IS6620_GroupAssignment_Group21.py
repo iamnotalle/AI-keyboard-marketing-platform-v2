@@ -63,7 +63,7 @@ load_api_keys()
 
 # ------------------- Page Config --------------------
 st.set_page_config(
-    page_title="Keyboard Export AI Marketing Platform",
+    page_title="键盘出海 AI 营销平台",
     page_icon="⌨️",
     layout="wide"
 )
@@ -198,7 +198,7 @@ def get_deepseek_client():
 def call_deepseek(messages: list, temperature: float = 0.3, max_retries: int = 2):
     client = get_deepseek_client()
     if client is None:
-        return "ERROR: DeepSeek API Key not configured."
+        return "ERROR：DeepSeek API Key 未配置。"
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -209,9 +209,9 @@ def call_deepseek(messages: list, temperature: float = 0.3, max_retries: int = 2
             return response.choices[0].message.content
         except Exception as e:
             if attempt == max_retries - 1:
-                return f"ERROR: DeepSeek API call failed: {e}"
+                return f"ERROR：DeepSeek API 调用失败：{e}"
             time.sleep(2)
-    return "ERROR: Max retries reached."
+    return "ERROR：已达到最大重试次数。"
 
 
 # ------------------- Qdrant RAG Retrieval --------------------
@@ -235,7 +235,7 @@ def retrieve_from_qdrant(query: str, top_k: int = 3):
 def translate_to_english(text: str) -> str:
     if not re.search(r"[\u4e00-\u9fff]", text):
         return text
-    prompt = f"Translate the following Chinese text into English. Return ONLY the translation:\n\n{text}"
+    prompt = f"请将以下中文翻译成英文，只返回翻译结果，不要额外解释：\n\n{text}"
     result = call_deepseek([{"role": "user", "content": prompt}], temperature=0.1)
     return result if not result.startswith("ERROR") else text
 
@@ -273,10 +273,10 @@ st.markdown(
     '<div style="text-align:center;padding:0.5rem 0 2.5rem 0;">'
     '<h1 style="font-size:2.5rem;font-weight:700;letter-spacing:-0.03em;'
     'margin-bottom:0.3rem;color:#1d1d1f;">'
-    'Keyboard Export AI Marketing Platform'
+    '键盘出海 AI 营销平台'
     '</h1>'
     '<p style="font-size:1.15rem;color:#86868b;font-weight:400;margin:0;">'
-    'DeepSeek + Qdrant Cloud &#8212; RAG-Powered Content Generation &amp; Review'
+    'DeepSeek + Qdrant Cloud &#8212; RAG 驱动的内容生成与审核'
     '</p></div>',
     unsafe_allow_html=True,
 )
@@ -284,7 +284,7 @@ st.markdown(
 
 # ------------------- Sidebar --------------------
 with st.sidebar:
-    st.markdown("### Settings")
+    st.markdown("### 设置")
 
     deepseek_configured = bool(st.session_state.get("deepseek_api_key", ""))
     qdrant_configured = bool(st.session_state.get("qdrant_url", "")) and bool(
@@ -292,27 +292,27 @@ with st.sidebar:
     )
 
     if deepseek_configured:
-        st.success("DeepSeek API &#8212; Connected")
+        st.success("DeepSeek API &#8212; 已连接")
     else:
-        st.warning("DeepSeek API &#8212; Not configured")
+        st.warning("DeepSeek API &#8212; 未配置")
 
     if qdrant_configured:
-        st.success("Qdrant Vector DB &#8212; Connected")
+        st.success("Qdrant 向量数据库 &#8212; 已连接")
     else:
-        st.warning("Qdrant Vector DB &#8212; Not configured")
+        st.warning("Qdrant 向量数据库 &#8212; 未配置")
 
     st.divider()
-    st.markdown("### Product & Content")
+    st.markdown("### 产品与内容")
 
-    product_name = st.text_input("Product Name", value="KeyX Pro")
+    product_name = st.text_input("产品名称", value="KeyX Pro")
     product_features = st.text_area(
-        "Product Features (one per line)",
+        "产品特性（每行一个）",
         value="Gasket mount structure\nHot-swappable switches\nRGB backlighting\nWireless connectivity",
     )
-    content_type = st.selectbox("Content Type", ["Blog", "EDM"])
+    content_type = st.selectbox("内容类型", ["博客", "EDM"])
     prompt_input = st.text_area(
-        "Additional Prompt (optional)",
-        placeholder="e.g. Focus on ergonomics and productivity",
+        "附加提示词（可选）",
+        placeholder="例如：重点突出人体工学和生产力提升",
     )
 
 
@@ -320,54 +320,57 @@ with st.sidebar:
 col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.subheader("Input")
+    st.subheader("输入")
     user_input = st.text_area(
-        "Marketing Requirements (Chinese supported)",
+        "营销需求（支持中文输入）",
         height=200,
-        placeholder="e.g. We need a blog post about how our new keyboard improves productivity...",
+        placeholder="例如：我们需要一篇博客，介绍新键盘如何提升工作效率...",
     )
 
-    if st.button("Generate Marketing Content", type="primary"):
+    if st.button("生成营销内容", type="primary"):
         if not user_input:
-            st.error("Please enter your marketing requirements.")
+            st.error("请输入营销需求。")
         elif not st.session_state.get("deepseek_api_key"):
-            st.error("Please configure DeepSeek API Key in the sidebar.")
+            st.error("请先在侧边栏配置 DeepSeek API Key。")
         else:
             with st.spinner("Generating..."):
                 # Step 1: Translate if needed
                 if re.search(r"[\u4e00-\u9fff]", user_input):
-                    st.info("Translating Chinese input to English...")
+                    st.info("正在将中文输入翻译为英文...")
                     user_input_en = translate_to_english(user_input)
                 else:
                     user_input_en = user_input
 
                 # Step 2: RAG retrieval
-                st.info("Retrieving relevant cases from Qdrant...")
+                st.info("正在从 Qdrant 检索相关案例...")
                 docs, scores = retrieve_from_qdrant(user_input_en, top_k=3)
 
                 if docs:
-                    st.success(f"Retrieved {len(docs)} relevant cases.")
-                    with st.expander("View Retrieval Results (with similarity scores)"):
+                    st.success(f"已检索到 {len(docs)} 个相关案例。")
+                    with st.expander("查看检索结果（含相似度分数）"):
                         for i, (doc, score) in enumerate(zip(docs, scores)):
                             st.markdown(f"**Case {i+1}** &#8212; Similarity: {score}")
                             st.text(doc[:200] + "...")
                 else:
-                    st.warning("No relevant cases found. Generating without RAG.")
+                    st.warning("未找到相关案例，将不使用 RAG 生成。")
 
                 # Step 3: Build prompt (English only)
+                # 将中文内容类型映射为英文给 AI
+                type_map = {"博客": "Blog", "EDM": "EDM"}
+                content_type_en = type_map.get(content_type, content_type)
                 rag_context = "\n\n".join(
                     [f"Case {i+1}:\n{doc}" for i, doc in enumerate(docs)]
                 )
 
                 system_prompt = (
                     f"You are a professional marketing content creator for keyboard products going global.\n\n"
-                    f"Your task: Generate a {content_type} in English.\n\n"
+                    f"Your task: Generate a {content_type_en} in English.\n\n"
                     f"Product: {product_name}\n"
                     f"Features:\n{product_features}\n\n"
                     f"RAG Reference Cases:\n{rag_context}\n\n"
                     f"Requirements:\n"
                     f"- Language: English only\n"
-                    f"- Content type: {content_type}\n"
+                    f"- Content type: {content_type_en}\n"
                     f"- Do NOT use competitor brand names (replace with [Competitor Name])\n"
                     f"- Do NOT use Introduction or Conclusion as headers\n"
                     f"- Tone should match the reference cases\n"
@@ -377,7 +380,7 @@ with col1:
                 system_prompt += "\nOutput the content directly, no extra explanation.\n"
 
                 # Step 4: Drafter Agent
-                st.info("Generating content (Drafter Agent)...")
+                st.info("正在生成内容（起草 Agent）...")
                 drafter_messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_input_en},
@@ -390,10 +393,10 @@ with col1:
                     draft_output = filter_think_tags(draft_output)
 
                     # Step 5: Critic Agent (max 2 rounds)
-                    st.info("Reviewing content (Critic Agent)...")
+                    st.info("正在审核内容（评审 Agent）...")
                     critic_prompt = (
                         f"You are a marketing content reviewer. "
-                        f"Review the following {content_type} content.\n\n"
+                        f"Review the following {content_type_en} content.\n\n"
                         f"Content to review:\n{draft_output}\n\n"
                         f"Check for:\n"
                         f"1. Competitor brand names (should be [Competitor Name])\n"
@@ -421,10 +424,10 @@ with col1:
                             if json_match:
                                 critic_result = json.loads(json_match.group())
                                 if critic_result.get("approved"):
-                                    st.success(f"Approved (Round {round_num+1})")
+                                    st.success(f"已通过（第 {round_num+1} 轮）")
                                     break
                                 else:
-                                    st.warning(f"Revision needed (Round {round_num+1})")
+                                    st.warning(f"需要修改（第 {round_num+1} 轮）")
                                     feedback = critic_result.get("feedback", "")
                                     refine_messages = drafter_messages + [
                                         {"role": "assistant", "content": current_draft},
@@ -436,10 +439,10 @@ with col1:
                                     current_draft = call_deepseek(refine_messages, temperature=0.7)
                                     current_draft = filter_think_tags(current_draft)
                             else:
-                                st.warning("Could not parse Critic response. Skipping review.")
+                                st.warning("无法解析评审响应，跳过审核。")
                                 break
                         except json.JSONDecodeError:
-                            st.warning("Critic response is not valid JSON. Skipping review.")
+                            st.warning("评审响应不是有效的 JSON，跳过审核。")
                             break
 
                     # Step 6: Final processing
@@ -453,29 +456,29 @@ with col1:
                     )
 
                     st.session_state.generated_content = final_output
-                    st.success("Content generated successfully!")
+                    st.success("内容生成成功！")
 
 with col2:
-    st.subheader("Output")
+    st.subheader("输出")
     if "generated_content" in st.session_state:
         st.markdown(st.session_state.generated_content)
         st.download_button(
-            "Download Content",
+            "下载内容",
             st.session_state.generated_content,
             file_name=f"{product_name}_{content_type}.txt",
             mime="text/plain",
         )
     else:
-        st.info("Generated content will appear here.")
+        st.info("生成的内容将显示在此处。")
 
 
 # ------------------- History --------------------
 if "history" in st.session_state and st.session_state.history:
     st.divider()
-    st.subheader("History")
+    st.subheader("历史记录")
     for i, item in enumerate(reversed(st.session_state.history[-10:])):
         input_preview = item["input"][:50]
-        with st.expander(f"Record {i+1}: {input_preview}..."):
-            st.markdown(f"**Input**: {item['input']}")
+        with st.expander(f"记录 {i+1}：{input_preview}..."):
+            st.markdown(f"**输入**：{item['input']}")
             output_preview = item["output"][:200]
-            st.markdown(f"**Output**: {output_preview}...")
+            st.markdown(f"**输出**：{output_preview}...")
