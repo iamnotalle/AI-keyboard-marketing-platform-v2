@@ -395,20 +395,24 @@ with col1:
                     # Step 5: Critic Agent (max 2 rounds)
                     st.info("正在审核内容（评审 Agent）...")
                     critic_prompt = (
-                        f"You are a marketing content reviewer. "
-                        f"Review the following {content_type_en} content.\n\n"
-                        f"Content to review:\n{draft_output}\n\n"
-                        f"Check for:\n"
-                        f"1. Competitor brand names (should be [Competitor Name])\n"
-                        f"2. Inappropriate terminology\n"
-                        f"3. Grammar and readability\n"
-                        f"4. Matching the reference cases style\n\n"
-                        f'If good, output: {{"approved": true, "feedback": ""}}\n'
-                        f'If changes needed, output: {{"approved": false, "feedback": "..."}}\n'
+                        "You are a strict marketing content reviewer. "
+                        "You MUST find at least one concrete improvement per review round. "
+                        "Do NOT approve unless the content is genuinely excellent (score >= 8/10).\n\n"
+                        "Content to review:\n"
+                        f"{draft_output}\n\n"
+                        "Check:\n"
+                        "1. Any competitor brand names NOT replaced with [Competitor Name]?\n"
+                        "2. Is the tone exciting and appealing to keyboard enthusiasts?\n"
+                        "3. Any grammar issues, typos, or awkward phrasing?\n"
+                        "4. Does the content fully address the user request?\n"
+                        "5. Is the length appropriate (Blog: 300-600 words, EDM: 100-200 words)?\n\n"
+                        'Output ONLY valid JSON, no markdown code fences:\n{"approved": true/false, "feedback": "...", "score": 1-10, "issues": ["..."]}'
                     )
 
                     max_critic_rounds = 2
                     current_draft = draft_output
+                    st.session_state.original_draft = draft_output  # 保存原始草稿
+                    st.session_state.critic_feedbacks = []  # 保存每轮审核记录
                     for round_num in range(max_critic_rounds):
                         critic_messages = [
                             {"role": "system", "content": critic_prompt},
@@ -428,6 +432,9 @@ with col1:
                                     break
                                 else:
                                     st.warning(f"需要修改（第 {round_num+1} 轮）")
+                                    # 记录本轮反馈
+                                    feedback_entry = {"round": round_num+1, "feedback": feedback, "before": current_draft, "after": ""}
+                                    st.session_state.critic_feedbacks.append(feedback_entry)
                                     feedback = critic_result.get("feedback", "")
                                     refine_messages = drafter_messages + [
                                         {"role": "assistant", "content": current_draft},
@@ -436,7 +443,10 @@ with col1:
                                             "content": f"Please revise based on this feedback: {feedback}",
                                         },
                                     ]
-                                    current_draft = call_deepseek(refine_messages, temperature=0.7)
+                                    st.warning(f"需要修改（第 {round_num+1} 轮）")
+                                    # 记录本轮反馈
+                                    feedback_entry = {"round": round_num+1, "feedback": feedback, "before": current_draft, "after": ""}
+                                    st.session_state.critic_feedbacks.append(feedback_entry)
                                     current_draft = filter_think_tags(current_draft)
                             else:
                                 st.warning("无法解析评审响应，跳过审核。")
@@ -461,13 +471,31 @@ with col1:
 with col2:
     st.subheader("输出")
     if "generated_content" in st.session_state:
-        st.markdown(st.session_state.generated_content)
-        st.download_button(
-            "下载内容",
-            st.session_state.generated_content,
-            file_name=f"{product_name}_{content_type}.txt",
-            mime="text/plain",
-        )
+        # Tab 视图：最终内容 + 审核过程
+        tab1, tab2 = st.tabs(["最终内容", "审核过程"])
+        with tab1:
+            st.markdown(st.session_state.generated_content)
+            st.download_button(
+                "下载内容",
+                st.session_state.generated_content,
+                file_name=f"{product_name}_{content_type}.txt",
+                mime="text/plain",
+            )
+        with tab2:
+            if "original_draft" in st.session_state and "critic_feedbacks" in st.session_state:
+                st.markdown("**原始草稿（起草 Agent）**")
+                st.text_area("草稿", st.session_state.original_draft, height=200, disabled=True, label_visibility="collapsed")
+                if st.session_state.critic_feedbacks:
+                    for entry in st.session_state.critic_feedbacks:
+                        st.markdown(f"**第 {entry['round']} 轮审核反馈**")
+                        st.info(entry["feedback"])
+                        if entry.get("after"):
+                            st.markdown(f"**第 {entry['round']} 轮修改后**")
+                            st.text_area(f"修改后{entry['round']}", entry["after"], height=150, disabled=True, label_visibility="collapsed")
+                else:
+                    st.success("Critic 审核通过，无需修改")
+            else:
+                st.info("暂无审核过程数据")
     else:
         st.info("生成的内容将显示在此处。")
 
