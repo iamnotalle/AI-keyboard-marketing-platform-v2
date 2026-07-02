@@ -24,7 +24,7 @@ This Streamlit app is designed as a product-manager portfolio project. It helps 
    - Supports Blog and EDM formats, matching the current reference case library.
 
 4. **Quality Review**
-   - Scores the draft on brief match, brand safety, compliance risk, CTA clarity, platform fit, content depth, and evidence use.
+   - Scores the draft on brief match, brand safety, compliance risk, fact consistency, CTA clarity, content depth, and evidence use.
    - Returns concrete iteration suggestions instead of only showing a final score.
 
 5. **PM Notes**

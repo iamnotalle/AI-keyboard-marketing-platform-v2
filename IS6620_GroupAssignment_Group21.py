@@ -71,18 +71,10 @@ EVALUATION_DIMENSIONS = [
     "需求匹配",
     "品牌安全",
     "合规风险",
+    "事实一致性",
     "CTA 清晰度",
-    "渠道适配",
     "内容完整度",
     "参考依据",
-]
-
-DEFAULT_EVALUATION_DIMENSIONS = [
-    "需求匹配",
-    "品牌安全",
-    "合规风险",
-    "CTA 清晰度",
-    "渠道适配",
 ]
 
 COMPLIANCE_RISK_PATTERNS = {
@@ -506,7 +498,8 @@ Output requirements:
 - Include a clear CTA: {"yes" if brief.include_cta else "no"}
 - Run compliance and brand-safety check before finalizing: {"yes" if brief.compliance_check else "no"}
 - Avoid absolute or unverifiable claims such as guaranteed results, medical benefits, or 100% performance promises.
-- For EDM, include a short unsubscribe or preference-management footer when appropriate.
+- If the content type is EDM, include a short unsubscribe or preference-management footer.
+- If the content type is Blog, do not include email footer language such as "unsubscribe", "manage preferences", or "you received this email".
 """.strip()
 
 
@@ -618,23 +611,49 @@ def evaluate_content(content: str, brief: Brief, cases: list[dict[str, Any]]) ->
             "上线前仍建议按目标市场邮件法规和品牌法务清单做最终复核。",
         )
 
+    unsupported_spec_patterns = [
+        r"\b\d+\s*(?:mah|hours?|hrs?|ms|g|kg|million|m)\b",
+        r"\b(?:waterproof|ip[0-9]{2}|bluetooth\s*[0-9.]+|2\.4ghz)\b",
+        r"\b(?:free shipping|30-day|lifetime warranty|certified|award-winning)\b",
+    ]
+    unsupported_hits = []
+    for pattern in unsupported_spec_patterns:
+        unsupported_hits.extend(re.findall(pattern, lower_content, flags=re.IGNORECASE))
+    if unsupported_hits:
+        issues["事实一致性"] = score_dimension(
+            6,
+            f"出现可能需要产品资料确认的具体信息：{', '.join(sorted(set(unsupported_hits)))}。",
+            "只保留 Brief 或产品事实库中已提供的信息；具体参数、保修、优惠和认证需补充来源后再发布。",
+        )
+    elif brief.product_name.lower() in lower_content:
+        issues["事实一致性"] = score_dimension(
+            9,
+            "未发现明显编造参数，且产品名称使用一致。",
+            "继续用产品事实库约束具体规格，避免临时生成未确认参数。",
+        )
+    else:
+        issues["事实一致性"] = score_dimension(
+            7,
+            "未发现明显编造参数，但产品名称露出不够稳定。",
+            "在标题、正文或 CTA 中明确产品名称，保证文案可直接用于该产品。",
+        )
+
     cta_terms = ["shop", "try", "learn", "discover", "order", "start", "click", "buy"]
     if any(term in lower_content for term in cta_terms):
         issues["CTA 清晰度"] = score_dimension(8, "文案包含明确的下一步动作。", "如果营销目标变化，可以把 CTA 调整得更贴合渠道。")
     else:
         issues["CTA 清晰度"] = score_dimension(5, "下一步动作不够明确。", "增加一个与营销目标相关的明确 CTA。")
 
-    platform_terms = {
-        "Email": ["subject", "hi", "shop", "learn"],
-        "Blog": ["heading", "guide", "story", "workday"],
-    }
-    required_terms = platform_terms.get(brief.platform, [])
-    if not required_terms or any(term in lower_content for term in required_terms):
-        issues["渠道适配"] = score_dimension(8, "文案整体符合所选渠道。", "可以继续加入渠道长度、开头结构和格式规则。")
-    else:
-        issues["渠道适配"] = score_dimension(6, "文案还不够贴合所选渠道。", "根据渠道调整开头、结构和篇幅。")
-
-    if len(content.split()) < 80 and brief.content_type == "Blog":
+    blog_has_email_footer = brief.content_type == "Blog" and any(
+        term in lower_content for term in ["unsubscribe", "manage preferences", "you received this email"]
+    )
+    if blog_has_email_footer:
+        issues["内容完整度"] = score_dimension(
+            6,
+            "Blog 中混入了 EDM 页脚或退订语句。",
+            "删除邮件页脚，保留 Blog 的标题、正文结构和 CTA。",
+        )
+    elif len(content.split()) < 80 and brief.content_type == "Blog":
         issues["内容完整度"] = score_dimension(6, "当前内容对该格式来说偏短。", "补充证明点、使用场景和卖点解释。")
     elif len(content.split()) > 260 and brief.content_type == "EDM":
         issues["内容完整度"] = score_dimension(6, "当前内容对该格式来说偏长。", "压缩篇幅，保留最关键的卖点和 CTA。")
@@ -726,8 +745,8 @@ JSON schema:
     "需求匹配": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
     "品牌安全": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
     "合规风险": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
+    "事实一致性": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
     "CTA 清晰度": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
-    "渠道适配": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
     "内容完整度": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}},
     "参考依据": {{"score": 1-10, "issue": "中文问题判断", "suggestion": "中文迭代建议"}}
   }}
@@ -746,6 +765,7 @@ Reference case count: {len(cases)}
 Compliance review checklist:
 - Check absolute or unverifiable claims, such as guaranteed results, best/perfect/100%, zero lag, medical or pain-prevention claims.
 - Check competitor or trademark misuse separately under 品牌安全.
+- Check whether the content invents unsupported specs, discounts, warranty promises, certifications or numerical claims under 事实一致性.
 - For EDM, check unsubscribe / opt-out / preference-management footer expectations.
 - This is a marketing-risk review, not legal advice; give practical rewrite suggestions.
 
@@ -781,15 +801,6 @@ def summarize_score(scorecard: dict[str, dict[str, Any]]) -> tuple[int, str]:
 def build_iteration_plan(scorecard: dict[str, dict[str, Any]]) -> list[str]:
     sorted_items = sorted(scorecard.items(), key=lambda item: item[1]["score"])
     return [f"{name}: {detail['suggestion']}" for name, detail in sorted_items[:3]]
-
-
-def filter_scorecard(
-    scorecard: dict[str, dict[str, Any]], selected_dimensions: list[str] | None
-) -> dict[str, dict[str, Any]]:
-    selected = [name for name in selected_dimensions or [] if name in scorecard]
-    if not selected:
-        selected = list(scorecard.keys())
-    return {name: scorecard[name] for name in selected}
 
 
 def save_history(brief: Brief, content: str, score: int, status: str) -> None:
@@ -896,16 +907,6 @@ with guard_col4:
 
 st.divider()
 
-if "selected_evaluation_dimensions" not in st.session_state:
-    st.session_state.selected_evaluation_dimensions = DEFAULT_EVALUATION_DIMENSIONS.copy()
-elif not st.session_state.get("_compliance_dimension_migrated"):
-    current_dimensions = list(st.session_state.selected_evaluation_dimensions)
-    if "合规风险" not in current_dimensions:
-        insert_at = current_dimensions.index("品牌安全") + 1 if "品牌安全" in current_dimensions else len(current_dimensions)
-        current_dimensions.insert(insert_at, "合规风险")
-        st.session_state.selected_evaluation_dimensions = current_dimensions
-    st.session_state._compliance_dimension_migrated = True
-
 left, right = st.columns([1, 1], gap="large")
 
 with left:
@@ -990,12 +991,8 @@ with left:
                     st.session_state.deepseek_api_key,
                     demo_mode=demo_mode,
                 )
-                selected_scorecard = filter_scorecard(
-                    scorecard,
-                    st.session_state.get("selected_evaluation_dimensions", DEFAULT_EVALUATION_DIMENSIONS),
-                )
-                score, status_label = summarize_score(selected_scorecard)
-                iteration_plan = build_iteration_plan(selected_scorecard)
+                score, status_label = summarize_score(scorecard)
+                iteration_plan = build_iteration_plan(scorecard)
                 status.update(label="生成完成", state="complete", expanded=False)
 
             st.session_state.result = {
@@ -1009,27 +1006,16 @@ with left:
                 "score": score,
                 "status": status_label,
                 "iteration_plan": iteration_plan,
-                "selected_evaluation_dimensions": st.session_state.get(
-                    "selected_evaluation_dimensions", DEFAULT_EVALUATION_DIMENSIONS
-                ),
             }
             save_history(brief, content, score, status_label)
 
 with right:
-    st.markdown("**审核 Agent 评估维度**")
-    selected_evaluation_dimensions = st.multiselect(
-        "审核 Agent 评估维度",
-        EVALUATION_DIMENSIONS,
-        key="selected_evaluation_dimensions",
-        label_visibility="collapsed",
-    )
-
     st.subheader("输出")
     result = st.session_state.get("result")
     if not result:
         st.info("生成的内容将显示在此处。")
     else:
-        visible_scorecard = filter_scorecard(result["scorecard"], selected_evaluation_dimensions)
+        visible_scorecard = result["scorecard"]
         visible_score, visible_status = summarize_score(visible_scorecard)
         st.caption(f"由 {result.get('reviewer_source', '审核 Agent')} 给出，用于判断是否需要继续迭代。")
         st.metric("审核 Agent 评分", f"{visible_score}/10", visible_status)
