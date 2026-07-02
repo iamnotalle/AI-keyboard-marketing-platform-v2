@@ -3,6 +3,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from html import escape
 from typing import Any
 
 import streamlit as st
@@ -196,27 +197,37 @@ st.markdown(
         margin-top: 0.55rem;
         max-width: 920px;
     }
-    .metric-row {
+    .summary-row {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.75rem;
-        margin: 1rem 0;
+        margin: 0.35rem 0 0.9rem 0;
     }
-    .metric-box {
+    .summary-card {
         background: #ffffff;
         border: 1px solid #e6e8ec;
         border-radius: 8px;
-        padding: 0.8rem 0.9rem;
+        padding: 0.72rem 0.85rem;
+        min-height: 82px;
     }
-    .metric-label {
+    .summary-label {
         color: #6b7280;
         font-size: 0.78rem;
-        margin-bottom: 0.2rem;
+        line-height: 1.2;
+        margin-bottom: 0.3rem;
     }
-    .metric-value {
+    .summary-value {
         color: #111827;
         font-weight: 720;
-        font-size: 1.05rem;
+        font-size: 1.22rem;
+        line-height: 1.25;
+        white-space: nowrap;
+    }
+    .summary-note {
+        color: #6b7280;
+        font-size: 0.75rem;
+        line-height: 1.25;
+        margin-top: 0.2rem;
     }
     .flow-step {
         background: #ffffff;
@@ -804,6 +815,32 @@ def build_iteration_plan(scorecard: dict[str, dict[str, Any]]) -> list[str]:
     return [f"{name}: {detail['suggestion']}" for name, detail in sorted_items[:3]]
 
 
+def render_output_summary(result: dict[str, Any] | None) -> None:
+    if result:
+        score, status_label = summarize_score(result["scorecard"])
+        cards = [
+            ("引用案例", f"{len(result['cases'])} 条", result.get("retrieval_source", "参考库")),
+            ("审核维度", f"{len(result['scorecard'])} 项", result.get("reviewer_source", "审核 Agent")),
+            ("综合评分", f"{score}/10", status_label),
+        ]
+    else:
+        cards = [
+            ("引用案例", "待检索", "生成后显示"),
+            ("审核维度", f"{len(EVALUATION_DIMENSIONS)} 项", "固定审核 Agent"),
+            ("综合评分", "待评分", "生成后显示"),
+        ]
+
+    card_html = "".join(
+        '<div class="summary-card">'
+        f'<div class="summary-label">{escape(label)}</div>'
+        f'<div class="summary-value">{escape(value)}</div>'
+        f'<div class="summary-note">{escape(note)}</div>'
+        "</div>"
+        for label, value, note in cards
+    )
+    st.markdown(f'<div class="summary-row">{card_html}</div>', unsafe_allow_html=True)
+
+
 def save_history(brief: Brief, content: str, score: int, status: str) -> None:
     st.session_state.history.append(
         {
@@ -1002,13 +1039,12 @@ with left:
 with right:
     st.subheader("输出")
     result = st.session_state.get("result")
+    render_output_summary(result)
     if not result:
         st.info("生成的内容将显示在此处。")
     else:
         visible_scorecard = result["scorecard"]
-        visible_score, visible_status = summarize_score(visible_scorecard)
         st.caption(f"由 {result.get('reviewer_source', '审核 Agent')} 给出，用于判断是否需要继续迭代。")
-        st.metric("审核 Agent 评分", f"{visible_score}/10", visible_status)
         for name, detail in visible_scorecard.items():
             st.progress(detail["score"] / 10, text=f"{name}: {detail['score']}/10")
             st.caption(detail["issue"])
