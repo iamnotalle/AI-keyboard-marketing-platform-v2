@@ -533,8 +533,196 @@ def generate_content(brief: Brief, cases: list[dict[str, Any]], api_key: str, de
     return replace_competitor_words(output, brief.avoid_terms), "DeepSeek Drafter"
 
 
+def format_scorecard_for_prompt(scorecard: dict[str, dict[str, Any]]) -> str:
+    if not scorecard:
+        return "No review result."
+    lines = []
+    for name in EVALUATION_DIMENSIONS:
+        detail = scorecard.get(name)
+        if not detail:
+            continue
+        lines.append(
+            f"- {name}: {detail['score']}/10 | 问题: {detail['issue']} | 修改建议: {detail['suggestion']}"
+        )
+    return "\n".join(lines)
+
+
+def apply_rule_based_revision(
+    draft_content: str,
+    brief: Brief,
+    draft_scorecard: dict[str, dict[str, Any]],
+) -> str:
+    revised = replace_competitor_words(draft_content, brief.avoid_terms)
+
+    if brief.product_name.lower() not in revised.lower():
+        revised = f"{brief.product_name}\n\n{revised}"
+
+    lower_revised = revised.lower()
+    if brief.content_type == "EDM" and not any(
+        term in lower_revised for term in ["unsubscribe", "opt out", "manage preferences"]
+    ):
+        revised = revised.rstrip() + "\n\nYou can unsubscribe or manage preferences at any time."
+
+    cta_terms = ["shop", "try", "learn", "discover", "order", "start", "click", "buy"]
+    if brief.include_cta and not any(term in revised.lower() for term in cta_terms):
+        revised = revised.rstrip() + f"\n\nLearn more about {brief.product_name} and find the setup that fits your day."
+
+    lowest_items = sorted(draft_scorecard.items(), key=lambda item: item[1]["score"])[:2]
+    if lowest_items and brief.content_type == "Blog":
+        benefit_lines = [
+            line.strip()
+            for line in brief.features.splitlines()
+            if line.strip() and line.strip().lower().split()[0] not in revised.lower()
+        ][:2]
+        if benefit_lines:
+            revised = (
+                revised.rstrip()
+                + "\n\nIt also gives users practical upgrade options such as "
+                + "; ".join(benefit_lines)
+                + ", so the setup can adapt as their work style changes."
+            )
+
+    return clean_final_content(revised, brief)
+
+
+def clean_final_content(content: str, brief: Brief) -> str:
+    cleaned = replace_competitor_words(content, brief.avoid_terms)
+    cleaned = re.sub(
+        r"(?is)\n\s*(?:#+\s*)?(?:\*\*)?What users say(?:\*\*)?.*?(?=\n\s*(?:#+\s*)?(?:\*\*)?[A-Z][^\n]*(?:\*\*)?\n|$)",
+        "\n",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?is)\s*Available with[^.\n]*(?:warranty|retailer|retailers)[^.\n]*\.", "", cleaned)
+    cleaned = re.sub(
+        r"(?im)^.*(?:warranty|free shipping|certified|award-winning|FDA approved|medical grade|clinically proven).*$\n?",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?im)^.*[\"“].*[\"”]\s*[—-].*(?:user|customer|worker).*$\n?", "", cleaned)
+    replacements = {
+        r"\bsignificantly enhances your experience\b": "can support a cleaner, more comfortable workflow",
+        r"\bstable,\s*low-latency wireless connectivity\b": "flexible wireless connectivity",
+        r"\blow-latency\b": "responsive",
+        r"\bwithout worrying about lag or interruptions\b": "with fewer setup distractions",
+        r"\bduring video calls or data transfers\b": "while moving between everyday tasks",
+        r"\bensures smooth performance\b": "keeps the setup simple",
+        r"\bnever lose your train of thought\b": "can stay closer to your flow",
+        r"\breduce hand strain\b": "stay more comfortable",
+        r"\bNo fatigue\.\s*No clutter\.\s*No friction\.": "Less clutter. Smoother switching. A calmer desk.",
+        r"\bNo fatigue\b": "Less distraction",
+        r"\bwork longer\b": "work with more comfort",
+    }
+    for pattern, replacement in replacements.items():
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bperfect\b", "preferred", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def revise_content_with_agent(
+    draft_content: str,
+    brief: Brief,
+    cases: list[dict[str, Any]],
+    draft_scorecard: dict[str, dict[str, Any]],
+    api_key: str,
+    demo_mode: bool,
+) -> tuple[str, str]:
+    if demo_mode or not api_key:
+        return apply_rule_based_revision(draft_content, brief, draft_scorecard), "规则迭代 Agent"
+
+    prompt = f"""
+You are a marketing content revision agent.
+Revise the draft after the first review.
+
+Return ONLY the revised final marketing content.
+Do not include review notes, explanations, markdown fences, or scoring.
+
+Product: {brief.product_name}
+Content type: {brief.content_type}
+Channel: {brief.platform}
+Goal: {brief.goal}
+Tone: {brief.tone}
+Length: {brief.length}
+Structure: {brief.structure}
+Features:
+{brief.features}
+
+Must include:
+{brief.must_include or "No extra required points."}
+
+Avoid:
+{brief.avoid_terms or "Competitor names, exaggerated claims, and unsupported promises."}
+
+First review result:
+{format_scorecard_for_prompt(draft_scorecard)}
+
+Revision requirements:
+- Fix the lowest-scoring review issues first.
+- Preserve the useful parts of the draft.
+- Keep the final output ready to use by a marketing operator.
+- Do not mention competitor names.
+- Avoid absolute, medical, warranty, discount, certification, or numerical claims that are not provided in the brief.
+- Do not invent testimonials, user quotes, review durations, retailer availability, warranties, awards, certifications, or pricing offers.
+- If the content type is EDM, include a short unsubscribe or preference-management footer.
+- If the content type is Blog, do not include email footer language.
+
+Draft content:
+{draft_content}
+""".strip()
+
+    ok, output = call_deepseek(
+        [
+            {"role": "system", "content": "You revise marketing content based on audit feedback."},
+            {"role": "user", "content": prompt},
+        ],
+        api_key=api_key,
+        temperature=0.45,
+    )
+    if not ok:
+        st.warning(output)
+        return apply_rule_based_revision(draft_content, brief, draft_scorecard), "规则迭代 Agent"
+    return clean_final_content(output, brief), "DeepSeek 迭代 Agent"
+
+
 def score_dimension(score: int, issue: str, suggestion: str) -> dict[str, Any]:
     return {"score": score, "issue": issue, "suggestion": suggestion}
+
+
+def clean_review_suggestion(name: str, suggestion: str) -> str:
+    unsafe_patterns = [
+        r"\b\d+\s*%",
+        r"\b\d+\s*ms\b",
+        r"<\s*\d+",
+        r"用户测试",
+        r"用户反馈",
+        r"具体延迟",
+        r"认证",
+        r"warranty",
+        r"保修",
+        r"FDA",
+        r"clinically",
+        r"free shipping",
+    ]
+    if not any(re.search(pattern, suggestion, flags=re.IGNORECASE) for pattern in unsafe_patterns):
+        return suggestion
+
+    safe_defaults = {
+        "事实一致性": "删除未在 Brief 或事实库出现的延迟、认证、保修、优惠、用户数据；如确需使用，先补充真实来源。",
+        "合规风险": "把疲劳、疼痛、疗效或绝对化表达改成更稳妥的舒适体验描述，并避免量化承诺。",
+        "参考依据": "只引用 Qdrant 已检索案例或产品事实库中的内容，不要补充未验证的用户数据。",
+        "需求匹配": "围绕已提供产品特性补充用户收益，不要新增未经确认的参数或效果数据。",
+    }
+    return safe_defaults.get(name, "基于已提供 Brief 和知识库改写，不要新增未经验证的参数、认证或用户数据。")
+
+
+def sanitize_scorecard(scorecard: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    sanitized: dict[str, dict[str, Any]] = {}
+    for name, detail in scorecard.items():
+        sanitized[name] = {
+            **detail,
+            "suggestion": clean_review_suggestion(name, str(detail.get("suggestion", ""))),
+        }
+    return sanitized
 
 
 def evaluate_content(content: str, brief: Brief, cases: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -646,7 +834,7 @@ def evaluate_content(content: str, brief: Brief, cases: list[dict[str, Any]]) ->
     else:
         issues["参考依据"] = score_dimension(5, "缺少参考案例支撑。", "发布前补充品牌案例或历史活动文案。")
 
-    return issues
+    return sanitize_scorecard(issues)
 
 
 def parse_agent_scorecard(raw_text: str, fallback: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -693,11 +881,11 @@ def parse_agent_scorecard(raw_text: str, fallback: dict[str, dict[str, Any]]) ->
     if not normalized:
         return fallback
 
-    return {
+    return sanitize_scorecard({
         name: normalized.get(name, fallback[name])
         for name in EVALUATION_DIMENSIONS
         if name in normalized or name in fallback
-    }
+    })
 
 
 def review_content_with_agent(
@@ -749,6 +937,8 @@ Compliance review checklist:
 - Check whether the content invents unsupported specs, discounts, warranty promises, certifications or numerical claims under 事实一致性.
 - For EDM, check unsubscribe / opt-out / preference-management footer expectations.
 - This is a marketing-risk review, not legal advice; give practical rewrite suggestions.
+- Do not suggest adding fake numbers, fake user tests, fake certifications, fake warranties, or fake testimonials.
+- If evidence is missing, suggest deleting the claim or adding a real source to the knowledge base before publishing.
 
 Generated content:
 {content}
@@ -784,6 +974,40 @@ def build_iteration_plan(scorecard: dict[str, dict[str, Any]]) -> list[str]:
     return [f"{name}: {detail['suggestion']}" for name, detail in sorted_items[:3]]
 
 
+def build_human_review_notes(
+    brief: Brief,
+    final_scorecard: dict[str, dict[str, Any]],
+    final_score: int,
+) -> list[str]:
+    notes: list[str] = []
+    if final_score >= 8:
+        notes.append("整体可以进入人工终审，重点确认产品参数、卖点表述和投放地区合规要求。")
+    elif final_score >= 6:
+        notes.append("建议人工复核后再发布，优先处理低分维度对应的表达风险。")
+    else:
+        notes.append("不建议直接发布，需要人工重审 Brief、产品事实和合规边界后再改稿。")
+
+    low_dimensions = [
+        name
+        for name, detail in final_scorecard.items()
+        if int(detail.get("score", 0)) <= 6
+    ]
+    if low_dimensions:
+        notes.append(f"人工重点看：{', '.join(low_dimensions)}。")
+
+    compliance_score = final_scorecard.get("合规风险", {}).get("score", 10)
+    factual_score = final_scorecard.get("事实一致性", {}).get("score", 10)
+    if compliance_score <= 7 or factual_score <= 7:
+        notes.append("涉及合规或事实一致性的内容，发布前需要用产品资料、法务清单或地区邮件规则再确认。")
+
+    if brief.content_type == "EDM":
+        notes.append("EDM 发布前确认退订入口、发件人信息、目标市场邮件合规要求和最终落地页链接。")
+    else:
+        notes.append("Blog 发布前确认 SEO 标题、正文小标题、图片/链接素材和产品事实来源。")
+
+    return notes[:4]
+
+
 def select_output_view() -> str:
     if st.session_state.get("output_view") not in OUTPUT_VIEWS:
         st.session_state.output_view = OUTPUT_VIEWS[0]
@@ -809,21 +1033,21 @@ def select_output_view() -> str:
 
 def render_empty_output(view: str) -> None:
     if view == "生成内容":
-        st.info("填写左侧 Brief 后，点击“生成营销内容”，这里会显示可直接给面试官体验的生成结果。")
+        st.info("填写左侧 Brief 后，点击“生成营销内容”，这里会显示二审后的最终稿。")
     elif view == "引用案例":
         st.info("生成后显示本次从 Qdrant / 案例库检索到的参考案例。")
     elif view == "审核维度":
-        st.caption("审核维度由系统固定，不需要用户选择。")
+        st.caption("审核维度由系统固定；生成后显示一审和终审结果。")
         for dimension in EVALUATION_DIMENSIONS:
             st.write(f"- {dimension}")
     elif view == "综合评分":
-        st.info("生成后显示 Review Agent 的综合评分、结论和优先迭代建议。")
+        st.info("生成后显示终审综合评分、迭代建议和人审意见。")
 
 
 def render_generated_content(result: dict[str, Any]) -> None:
     brief = result["brief"]
     st.caption(
-        f"生成来源：{result.get('drafter_source', '内容生成 Agent')}；"
+        f"最终稿来源：{result.get('revision_source', '迭代 Agent')}；"
         f"内容类型：{brief.content_type}"
     )
     st.markdown(result["content"])
@@ -835,6 +1059,14 @@ def render_generated_content(result: dict[str, Any]) -> None:
         use_container_width=True,
         key="download_generated_content",
     )
+    if result.get("draft_content"):
+        with st.expander("查看草稿与一审后修改路径", expanded=False):
+            st.caption(f"草稿来源：{result.get('drafter_source', '草稿 Agent')}")
+            st.markdown(result["draft_content"])
+            draft_score, draft_status = summarize_score(result.get("draft_scorecard", {}))
+            st.caption(f"一审结论：{draft_score}/10 · {draft_status}")
+            for suggestion in build_iteration_plan(result.get("draft_scorecard", {})):
+                st.write(f"- {suggestion}")
 
 
 def render_reference_cases(result: dict[str, Any]) -> None:
@@ -854,8 +1086,8 @@ def render_reference_cases(result: dict[str, Any]) -> None:
 def render_review_dimensions(result: dict[str, Any]) -> None:
     scorecard = result.get("scorecard", {})
     st.caption(
-        f"由 {result.get('reviewer_source', '审核 Agent')} 给出；"
-        "维度固定，避免用户为了拿高分手动筛选审核项。"
+        f"终审由 {result.get('reviewer_source', '终审 Agent')} 给出；"
+        "审核维度固定，避免用户为了拿高分手动筛选审核项。"
     )
     for name in EVALUATION_DIMENSIONS:
         detail = scorecard.get(name)
@@ -865,6 +1097,17 @@ def render_review_dimensions(result: dict[str, Any]) -> None:
         st.caption(f"问题：{detail['issue']}")
         st.caption(f"建议：{detail['suggestion']}")
 
+    draft_scorecard = result.get("draft_scorecard", {})
+    if draft_scorecard:
+        with st.expander("查看一审草稿审核", expanded=False):
+            st.caption(f"一审由 {result.get('draft_reviewer_source', '一审 Agent')} 给出。")
+            for name in EVALUATION_DIMENSIONS:
+                detail = draft_scorecard.get(name)
+                if not detail:
+                    continue
+                st.progress(detail["score"] / 10, text=f"{name}: {detail['score']}/10")
+                st.caption(f"问题：{detail['issue']}")
+
 
 def render_overall_score(result: dict[str, Any]) -> None:
     score = result.get("score")
@@ -872,15 +1115,28 @@ def render_overall_score(result: dict[str, Any]) -> None:
     if score is None or status_label is None:
         score, status_label = summarize_score(result.get("scorecard", {}))
 
-    metric_col1, metric_col2 = st.columns(2)
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
     metric_col1.metric("综合评分", f"{score}/10")
     metric_col2.metric("审核结论", status_label)
+    draft_score, _ = summarize_score(result.get("draft_scorecard", {}))
+    if draft_score:
+        score_delta = score - draft_score
+        delta_label = f"+{score_delta}" if score_delta > 0 else str(score_delta)
+        metric_col3.metric("一审到终审", f"{draft_score} → {score}", delta=delta_label)
+    else:
+        metric_col3.metric("审核轮次", "双检双审")
 
     iteration_plan = result.get("iteration_plan") or build_iteration_plan(result.get("scorecard", {}))
     if iteration_plan:
         st.markdown("**优先迭代建议**")
         for index, suggestion in enumerate(iteration_plan, start=1):
             st.write(f"{index}. {suggestion}")
+
+    human_review_notes = result.get("human_review_notes", [])
+    if human_review_notes:
+        st.markdown("**人审意见**")
+        for index, note in enumerate(human_review_notes, start=1):
+            st.write(f"{index}. {note}")
 
 
 def render_output_panel(result: dict[str, Any] | None) -> None:
@@ -1060,15 +1316,34 @@ with left:
                     content_type=brief.content_type,
                 )
 
-                st.write("生成内容")
-                content, drafter_source = generate_content(
+                st.write("草稿 Agent 生成初稿")
+                draft_content, drafter_source = generate_content(
                     brief,
                     cases,
                     st.session_state.deepseek_api_key,
                     demo_mode=demo_mode,
                 )
 
-                st.write("审核 Agent 评估内容")
+                st.write("一审 Agent 检查草稿")
+                draft_scorecard, draft_reviewer_source = review_content_with_agent(
+                    draft_content,
+                    brief,
+                    cases,
+                    st.session_state.deepseek_api_key,
+                    demo_mode=demo_mode,
+                )
+
+                st.write("迭代 Agent 根据一审意见修改")
+                content, revision_source = revise_content_with_agent(
+                    draft_content,
+                    brief,
+                    cases,
+                    draft_scorecard,
+                    st.session_state.deepseek_api_key,
+                    demo_mode=demo_mode,
+                )
+
+                st.write("终审 Agent 评分并生成人审意见")
                 scorecard, reviewer_source = review_content_with_agent(
                     content,
                     brief,
@@ -1078,19 +1353,25 @@ with left:
                 )
                 score, status_label = summarize_score(scorecard)
                 iteration_plan = build_iteration_plan(scorecard)
+                human_review_notes = build_human_review_notes(brief, scorecard, score)
                 status.update(label="生成完成", state="complete", expanded=False)
 
             st.session_state.result = {
                 "brief": brief,
+                "draft_content": draft_content,
                 "content": content,
                 "cases": cases,
                 "retrieval_source": retrieval_source,
                 "drafter_source": drafter_source,
+                "draft_reviewer_source": draft_reviewer_source,
+                "revision_source": revision_source,
                 "reviewer_source": reviewer_source,
+                "draft_scorecard": draft_scorecard,
                 "scorecard": scorecard,
                 "score": score,
                 "status": status_label,
                 "iteration_plan": iteration_plan,
+                "human_review_notes": human_review_notes,
             }
             save_history(brief, content, score, status_label)
 
