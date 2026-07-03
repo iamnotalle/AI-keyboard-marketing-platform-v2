@@ -1076,7 +1076,7 @@ def render_reference_cases(result: dict[str, Any]) -> None:
         return
 
     visible_cases = cases[:3]
-    st.caption(f"参考来源：{result.get('retrieval_source', '参考库')}；展示 Top {len(visible_cases)}")
+    st.caption(f"参考来源：知识库；展示 Top {len(visible_cases)}")
     for index, case in enumerate(visible_cases, start=1):
         title = case.get("title", "参考案例")
         score = case.get("score", 0)
