@@ -1035,7 +1035,7 @@ def render_empty_output(view: str) -> None:
     if view == "生成内容":
         st.info("填写左侧 Brief 后，点击“生成营销内容”，这里会显示二审后的最终稿。")
     elif view == "引用案例":
-        st.info("生成后显示本次从 Qdrant / 案例库检索到的参考案例。")
+        st.info("生成后显示本次从 Qdrant / 案例库检索到的 Top 3 引用案例。")
     elif view == "审核维度":
         st.caption("审核维度由系统固定；生成后显示一审和终审结果。")
         for dimension in EVALUATION_DIMENSIONS:
@@ -1071,12 +1071,13 @@ def render_generated_content(result: dict[str, Any]) -> None:
 
 def render_reference_cases(result: dict[str, Any]) -> None:
     cases = result.get("cases", [])
-    st.caption(f"参考来源：{result.get('retrieval_source', '参考库')}")
     if not cases:
         st.info("本次没有检索到可用案例，生成内容使用了产品 Brief 和系统规则。")
         return
 
-    for index, case in enumerate(cases, start=1):
+    visible_cases = cases[:3]
+    st.caption(f"参考来源：{result.get('retrieval_source', '参考库')}；展示 Top {len(visible_cases)}")
+    for index, case in enumerate(visible_cases, start=1):
         title = case.get("title", "参考案例")
         score = case.get("score", 0)
         with st.expander(f"{index}. {title} · 匹配度 {score}", expanded=index == 1):
