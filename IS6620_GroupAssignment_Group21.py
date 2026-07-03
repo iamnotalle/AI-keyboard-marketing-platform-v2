@@ -175,8 +175,10 @@ st.markdown(
     html, body, [class*="css"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
-    #MainMenu, footer, header { visibility: hidden; }
-    [data-testid="stHeader"],
+    #MainMenu, footer { visibility: hidden; }
+    [data-testid="stHeader"] {
+        background: transparent;
+    }
     [data-testid="stToolbar"],
     [data-testid="stAppDeployButton"],
     .stDeployButton,
