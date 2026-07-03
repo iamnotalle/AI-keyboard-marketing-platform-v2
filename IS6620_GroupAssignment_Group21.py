@@ -65,6 +65,16 @@ DEMO_CASES = [
         ),
         "score": 0.86,
     },
+    {
+        "title": "远程办公场景 Blog",
+        "content": (
+            "Remote-work content should translate keyboard features into daily workflow "
+            "benefits. Start from long typing sessions and desk clutter, then explain "
+            "how a softer mount, flexible switches, and wireless connectivity support "
+            "a calmer and more adaptable work setup."
+        ),
+        "score": 0.84,
+    },
 ]
 
 EVALUATION_DIMENSIONS = [
