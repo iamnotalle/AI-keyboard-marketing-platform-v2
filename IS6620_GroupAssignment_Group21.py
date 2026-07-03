@@ -166,7 +166,7 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
-st.set_page_config(page_title=APP_TITLE, page_icon="⌨️", layout="wide")
+st.set_page_config(page_title=APP_TITLE, page_icon="⌨️", layout="wide", initial_sidebar_state="expanded")
 init_state()
 
 st.markdown(
@@ -179,7 +179,6 @@ st.markdown(
     [data-testid="stHeader"] {
         background: transparent;
     }
-    [data-testid="stToolbar"],
     [data-testid="stAppDeployButton"],
     .stDeployButton,
     .stAppDeployButton { display: none !important; }
