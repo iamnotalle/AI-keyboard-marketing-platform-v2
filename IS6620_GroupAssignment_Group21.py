@@ -363,9 +363,6 @@ def retrieve_cases(
     content_type: str,
     top_k: int = 3,
 ) -> tuple[list[dict[str, Any]], str]:
-    if demo_mode:
-        return DEMO_CASES[:top_k], "内置参考库"
-
     client, embedding_model = get_qdrant_resources(url, api_key)
     if client is None:
         return DEMO_CASES[:top_k], "内置参考库"
