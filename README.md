@@ -53,6 +53,18 @@
 - 对面试官隐藏 API 配置，让对方能直接体验产品。
 - 用固定审核维度降低用户选择成本，体现产品设计取舍。
 
+## AI 产品经理交付物
+
+| 文档 | 用途 |
+|---|---|
+| [PRD](docs/PRD.md) | 说明目标用户、用户问题、产品目标、功能范围和成功指标 |
+| [用户流程](docs/USER_FLOW.md) | 展示从 Brief 到 RAG、双检双审和最终输出的完整链路 |
+| [产品与技术架构](docs/ARCHITECTURE.md) | 说明 Streamlit、Qdrant、DeepSeek、Agent 和安全规则如何协作 |
+| [指标与监控](docs/METRICS_AND_MONITORING.md) | 定义北极星指标、质量指标、体验指标和上线监控 |
+| [风险控制](docs/RISK_AND_GOVERNANCE.md) | 说明事实一致性、合规、品牌安全和人机协同边界 |
+| [路线图](docs/ROADMAP.md) | 说明从基础生成器到 RAG、双检双审、测评和运营闭环的迭代路径 |
+| [测评报告](evaluation/reports/rules_eval_summary_20260706.md) | 基于 30 条测试集的规则测评摘要 |
+
 ## 技术结构
 
 - 前端与产品界面：Streamlit
