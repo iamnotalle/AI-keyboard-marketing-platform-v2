@@ -37,3 +37,30 @@
 6. 检查终审 Agent 分数、人审意见和最终稿。
 
 人工验收时优先看 `human_acceptance_criteria` 字段。
+
+## 运行测评
+
+快速规则测评，不消耗 DeepSeek API：
+
+```bash
+python evaluation/run_evaluation.py --mode rules
+```
+
+先抽 3 条做 smoke test：
+
+```bash
+python evaluation/run_evaluation.py --mode rules --limit 3
+```
+
+真实调用 DeepSeek 跑草稿 Agent 和迭代 Agent：
+
+```bash
+python evaluation/run_evaluation.py --mode api --limit 5
+```
+
+测评结果会输出到 `evaluation/results/`：
+
+- `eval_report_*.csv`: 指标表，适合放进汇报或 Excel。
+- `eval_details_*.jsonl`: 每条用例的引用、草稿、最终稿和评分详情。
+
+面试展示时建议先跑 `rules` 全量，再挑 3-5 条风险用例用 `api` 模式跑真实链路。

@@ -14,6 +14,9 @@ build/
 # Streamlit
 .streamlit/secrets.toml
 
+# Evaluation outputs
+evaluation/results/
+
 # Environment variables
 .env
 .env.*
