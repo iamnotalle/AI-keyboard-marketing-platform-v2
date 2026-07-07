@@ -1,0 +1,26 @@
+{
+  "case_id": "ONLINE_FAIL_YYYYMMDD_001",
+  "source": "streamlit_user_feedback",
+  "category": "risk",
+  "content_type": "Blog or EDM",
+  "product_name": "",
+  "features": [],
+  "marketing_goal": "",
+  "tone": "",
+  "length": "",
+  "structure": "",
+  "user_need": "",
+  "must_include": "",
+  "avoid_terms": [],
+  "expected_reference_focus": [],
+  "risk_tags": [
+    "online_failure"
+  ],
+  "failure_observation": {
+    "user_report": "",
+    "bad_output_excerpt": "",
+    "failed_dimensions": [],
+    "expected_behavior": ""
+  },
+  "human_acceptance_criteria": []
+}

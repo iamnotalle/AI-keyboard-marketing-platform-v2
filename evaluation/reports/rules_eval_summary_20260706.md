@@ -39,9 +39,9 @@
 - Risk 用例全部通过，说明当前规则对竞品词、绝对化表达、医疗化表达、虚构事实和 EDM 合规页脚有基础拦截能力。
 - Rules 模式用于快速回归验证，不代表最终真实 LLM 输出质量。真实发布前应抽取 3-5 条风险用例使用 `--mode api` 复测。
 
-## 5. 下一步
+## 5. 已补充的闭环动作
 
-- 增加人工引用相关性打分。
-- 增加 API 模式小样本报告。
-- 对低分维度建立知识库补充机制。
-- 将线上真实失败案例回流到测试集。
+- 人工引用相关性打分：已生成 `human_review/reference_relevance_scorecard_20260707_100515.csv`，并补充 1-5 分评分口径。
+- API 模式小样本报告：已生成 `reports/api_sample_report_20260707_100638.md`。
+- 低分维度知识库补充机制：已生成 `knowledge_backlog/knowledge_gap_backlog_20260707_100515.csv` 和摘要。
+- 线上真实失败案例回流：已新增 `testset_backlog/online_failure_case_template.json` 和回流说明。

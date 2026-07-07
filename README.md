@@ -64,6 +64,10 @@
 | [风险控制](docs/RISK_AND_GOVERNANCE.md) | 说明事实一致性、合规、品牌安全和人机协同边界 |
 | [路线图](docs/ROADMAP.md) | 说明从基础生成器到 RAG、双检双审、测评和运营闭环的迭代路径 |
 | [测评报告](evaluation/reports/rules_eval_summary_20260706.md) | 基于 30 条测试集的规则测评摘要 |
+| [API 小样本报告](evaluation/reports/api_sample_report_20260707_100638.md) | 基于真实 API 链路抽取风险用例验证生成质量 |
+| [人工引用打分说明](evaluation/human_review/reference_relevance_scoring_guide.md) | 定义 Top 3 知识库引用的人工相关性评分口径 |
+| [知识库补充待办](evaluation/knowledge_backlog/knowledge_gap_summary_20260707_100515.md) | 将低分维度转成可执行的补库动作 |
+| [失败案例回流说明](evaluation/testset_backlog/README.md) | 将线上真实失败沉淀为后续回归测试集 |
 
 ## 技术结构
 

@@ -578,6 +578,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["rules", "api"], default="rules")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--case-id", default=None)
+    parser.add_argument("--category", choices=["normal", "edge", "risk"], default=None)
     parser.add_argument("--top-k", type=int, default=3)
     return parser.parse_args()
 
@@ -588,6 +589,8 @@ def main() -> None:
     rows = load_testset(testset_path)
     if args.case_id:
         rows = [row for row in rows if row["case_id"] == args.case_id]
+    if args.category:
+        rows = [row for row in rows if row["category"] == args.category]
     if args.limit is not None:
         rows = rows[: args.limit]
 
