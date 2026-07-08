@@ -540,11 +540,12 @@ def retrieve_cases(
         pass
 
     try:
-        knowledge_cases = scroll_qdrant_cases(client, KNOWLEDGE_COLLECTION_NAME, query, content_type, 3)
+        knowledge_cases = scroll_qdrant_cases(client, KNOWLEDGE_COLLECTION_NAME, query, "", 6)
     except Exception:
         pass
 
-    combined = merge_references(vector_cases, lexical_cases, knowledge_cases, limit=6)
+    case_references = merge_references(vector_cases, lexical_cases, limit=3)
+    combined = merge_references(case_references, knowledge_cases, limit=6)
     if combined:
         if vector_cases and knowledge_cases:
             return combined, "Qdrant Cloud 向量+知识库检索"

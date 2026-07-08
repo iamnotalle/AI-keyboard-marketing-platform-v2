@@ -59,8 +59,7 @@ def read_secrets() -> dict[str, str]:
     values: dict[str, str] = {}
     secrets_path = ROOT / ".streamlit" / "secrets.toml"
     if secrets_path.exists():
-        with secrets_path.open("rb") as file:
-            raw = tomllib.load(file)
+        raw = tomllib.loads(secrets_path.read_text(encoding="utf-8-sig"))
         values.update({key: str(value) for key, value in raw.items()})
 
     for key in ["DEEPSEEK_API_KEY", "QDRANT_URL", "QDRANT_API_KEY"]:
@@ -140,7 +139,7 @@ def scroll_collection(
     for index, point in enumerate(points):
         payload = point.payload or {}
         payload_type = str(payload.get("type", "")).strip().lower()
-        if payload_type and payload_type != content_type.lower():
+        if payload_type and content_type and payload_type != content_type.lower():
             continue
         reference = payload_to_reference(payload, 0, f"{collection_name} {index + 1}")
         reference["score"] = lexical_score(query, reference, content_type)
@@ -192,8 +191,9 @@ def retrieve_references(case: dict[str, Any], secrets: dict[str, str], top_k: in
     )
     client = QdrantClient(url=url, api_key=api_key)
     case_refs = scroll_collection(client, CASE_COLLECTION_NAME, query, case["content_type"], top_k)
-    knowledge_refs = scroll_collection(client, KNOWLEDGE_COLLECTION_NAME, query, case["content_type"], top_k)
-    references = merge_references(case_refs, knowledge_refs, limit=top_k)
+    knowledge_refs = scroll_collection(client, KNOWLEDGE_COLLECTION_NAME, query, "", top_k)
+    case_limit = max(1, top_k - 1) if knowledge_refs else top_k
+    references = merge_references(case_refs[:case_limit], knowledge_refs, limit=top_k)
     source = "qdrant" if references else "qdrant_empty"
     return references, source
 

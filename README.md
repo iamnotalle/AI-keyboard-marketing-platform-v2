@@ -73,6 +73,7 @@
 | [人工引用打分说明](evaluation/human_review/reference_relevance_scoring_guide.md) | 定义 Top 3 知识库引用的人工相关性评分口径 |
 | [知识库补充待办](evaluation/knowledge_backlog/knowledge_gap_summary_20260707_100515.md) | 将低分维度转成可执行的补库动作 |
 | [失败案例回流说明](evaluation/testset_backlog/README.md) | 将线上真实失败沉淀为后续回归测试集 |
+| [知识库资料包](knowledge_base/README.md) | 产品事实、品牌规范、合规规则和优秀 Blog / EDM 案例 |
 
 ## 技术结构
 
@@ -130,6 +131,14 @@ streamlit run IS6620_GroupAssignment_Group21.py
 1. 复制 `.streamlit/secrets.example.toml` 为 `.streamlit/secrets.toml`。
 2. 填入真实的 DeepSeek 和 Qdrant 配置。
 3. 不要提交 `.streamlit/secrets.toml`，该文件已被 `.gitignore` 忽略。
+
+补充或更新 Qdrant 知识库：
+
+```bash
+python scripts/seed_qdrant_knowledge.py
+```
+
+脚本会把 `knowledge_base/keyboard_marketing_knowledge_v1.jsonl` 写入 `marketing_knowledge_base` 和 `marketing_cases`，用于补充产品事实、品牌规范、合规规则和优秀案例。
 
 ## Streamlit Cloud 部署
 
