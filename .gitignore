@@ -17,6 +17,7 @@ build/
 # Evaluation outputs
 evaluation/results/
 evaluation/feedback_queue/
+.playwright-cli/
 
 # Environment variables
 .env

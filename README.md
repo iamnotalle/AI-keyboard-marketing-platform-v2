@@ -104,6 +104,13 @@ QDRANT_URL = "your-qdrant-cluster-url"
 QDRANT_API_KEY = "your-qdrant-api-key"
 ```
 
+线上可用性检查：
+
+- 面试官打开页面不应该看到 API key 输入框；
+- 生成结果应显示 `DeepSeek` 相关来源，而不是 Demo fallback；
+- 引用案例应展示 Top 3；
+- 标记“不相关”后，应显示“已写入知识库优化队列”；如果只显示兜底队列，说明 Streamlit Cloud 还没有配好 Qdrant Secrets。
+
 当 `SHOW_API_SETTINGS = false` 时：
 
 - 页面不会展示 API 输入框；
