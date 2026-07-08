@@ -638,6 +638,8 @@ Output requirements:
 - Include a clear CTA: {"yes" if brief.include_cta else "no"}
 - Run compliance and brand-safety check before finalizing: {"yes" if brief.compliance_check else "no"}
 - Avoid absolute or unverifiable claims such as guaranteed results, medical benefits, or 100% performance promises.
+- Do not invent product specs such as Bluetooth version, wireless range, latency, certification, lifespan, warranty, price, discounts, or user-test data unless they appear in the brief or references.
+- Avoid health or pain-reduction wording such as wrist pain, strain, ache, or fatigue unless the brief explicitly provides approved evidence.
 - If the content type is EDM, include a short unsubscribe or preference-management footer.
 - If the content type is Blog, do not include email footer language such as "unsubscribe", "manage preferences", or "you received this email".
 """.strip()
@@ -770,12 +772,58 @@ def clean_final_content(content: str, brief: Brief) -> str:
         r"\bNo fatigue\.\s*No clutter\.\s*No friction\.": "Less clutter. Smoother switching. A calmer desk.",
         r"\bNo fatigue\b": "Less distraction",
         r"\bwork longer\b": "work with more comfort",
+        r"\bBluetooth\s*5(?:\.0)?\b": "wireless connectivity",
+        r"\bup to\s*\d+\s*(?:meters?|m)\s*away\b": "around your workspace",
+        r"\bno soldering,\s*no tools\b": "no soldering",
     }
     for pattern, replacement in replacements.items():
         cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bperfect\b", "preferred", cleaned, flags=re.IGNORECASE)
+    cleaned = strip_unsupported_claim_sentences(cleaned, brief)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def strip_unsupported_claim_sentences(content: str, brief: Brief) -> str:
+    approved_source = "\n".join(
+        [
+            brief.features,
+            brief.must_include,
+            brief.additional_prompt,
+            brief.user_need,
+        ]
+    ).lower()
+    claim_rules = [
+        (r"\bbluetooth\s*\d", ["bluetooth"]),
+        (r"\b\d+\s*(?:meters?|m)\b", ["meter", "meters", "m range", "wireless range"]),
+        (r"\b(?:latency|lag|ms)\b", ["latency", "lag", "ms"]),
+        (r"\b(?:durable|durability|lifespan|withstand daily use|long[-\s]?lasting)\b", ["durable", "durability", "lifespan", "long-lasting"]),
+        (r"\b(?:wrist|ache|pain|strain|fatigue|ergonomic|ergonomics)\b", ["wrist", "pain", "strain", "fatigue", "ergonomic", "ergonomics"]),
+        (r"\b(?:certified|certification|warranty|guarantee|discount|free shipping|price)\b", ["certified", "certification", "warranty", "discount", "price"]),
+    ]
+
+    def is_allowed(keywords: list[str]) -> bool:
+        return any(keyword in approved_source for keyword in keywords)
+
+    cleaned_paragraphs = []
+    for paragraph in content.split("\n"):
+        if not paragraph.strip():
+            cleaned_paragraphs.append(paragraph)
+            continue
+        sentences = re.split(r"(?<=[.!?])\s+", paragraph)
+        kept_sentences = []
+        for sentence in sentences:
+            if not sentence.strip():
+                continue
+            should_drop = any(
+                re.search(pattern, sentence, flags=re.IGNORECASE) and not is_allowed(keywords)
+                for pattern, keywords in claim_rules
+            )
+            if not should_drop:
+                kept_sentences.append(sentence)
+        if kept_sentences:
+            cleaned_paragraphs.append(" ".join(kept_sentences))
+    return "\n".join(cleaned_paragraphs)
 
 
 def revise_content_with_agent(
@@ -822,6 +870,7 @@ Revision requirements:
 - Do not mention competitor names.
 - Avoid absolute, medical, warranty, discount, certification, or numerical claims that are not provided in the brief.
 - Do not invent testimonials, user quotes, review durations, retailer availability, warranties, awards, certifications, or pricing offers.
+- Do not add Bluetooth version, wireless range, latency, durability, health, pain, wrist, strain, or fatigue claims unless they are explicitly present in the brief or references.
 - If the content type is EDM, include a short unsubscribe or preference-management footer.
 - If the content type is Blog, do not include email footer language.
 
