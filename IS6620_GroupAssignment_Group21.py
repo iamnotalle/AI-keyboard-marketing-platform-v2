@@ -2,7 +2,9 @@ import json
 import os
 import re
 import time
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -14,8 +16,10 @@ except Exception:  # pragma: no cover - handled in UI
 
 try:
     from qdrant_client import QdrantClient
+    from qdrant_client.http import models as qdrant_models
 except Exception:  # pragma: no cover - handled in UI
     QdrantClient = None
+    qdrant_models = None
 
 try:
     from fastembed import TextEmbedding
@@ -26,6 +30,9 @@ except Exception:  # pragma: no cover - handled in UI
 APP_TITLE = "键盘出海营销内容生成器"
 CASE_COLLECTION_NAME = "marketing_cases"
 KNOWLEDGE_COLLECTION_NAME = "marketing_knowledge_base"
+FEEDBACK_COLLECTION_NAME = "reference_feedback_queue"
+PROJECT_ROOT = Path(__file__).resolve().parent
+FEEDBACK_FALLBACK_PATH = PROJECT_ROOT / "evaluation" / "feedback_queue" / "reference_feedback_queue.jsonl"
 
 COMPETITOR_WORDS = [
     "Cherry",
@@ -203,6 +210,8 @@ def init_state() -> None:
         "show_pm_backend": read_bool_secret("SHOW_PM_BACKEND", False),
         "history": [],
         "reference_feedback": {},
+        "reference_feedback_persisted": {},
+        "reference_feedback_status": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -324,6 +333,104 @@ def get_qdrant_resources(url: str, api_key: str):
         except Exception:
             embedding_model = None
     return client, embedding_model
+
+
+def utc_now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def qdrant_collection_exists(client: Any, collection_name: str) -> bool:
+    try:
+        return bool(client.collection_exists(collection_name=collection_name))
+    except Exception:
+        try:
+            client.get_collection(collection_name=collection_name)
+            return True
+        except Exception:
+            return False
+
+
+def ensure_feedback_collection(client: Any) -> None:
+    if qdrant_models is None:
+        raise RuntimeError("Qdrant models are unavailable.")
+    if qdrant_collection_exists(client, FEEDBACK_COLLECTION_NAME):
+        return
+    client.create_collection(
+        collection_name=FEEDBACK_COLLECTION_NAME,
+        vectors_config=qdrant_models.VectorParams(size=1, distance=qdrant_models.Distance.COSINE),
+    )
+
+
+def feedback_queue_status(decision: str) -> str:
+    if decision == "不相关":
+        return "needs_review"
+    if decision == "不采用":
+        return "logged"
+    return "accepted"
+
+
+def build_feedback_payload(record: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(record)
+    payload["feedback_id"] = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"{record.get('result_id', 'current')}:{record.get('reference_rank', 0)}",
+        )
+    )
+    payload["created_at_utc"] = utc_now_iso()
+    payload["queue_status"] = feedback_queue_status(str(record.get("decision", "")))
+    payload["feedback_source"] = "streamlit_reference_tab"
+    if record.get("decision") == "不相关":
+        payload["recommended_pm_action"] = "进入知识库优化队列：检查检索标签、补充更相关案例，必要时回流测试集。"
+    elif record.get("decision") == "不采用":
+        payload["recommended_pm_action"] = "记录为弱相关引用，后续结合更多样本判断是否优化排序。"
+    else:
+        payload["recommended_pm_action"] = "记录为可采用引用，可作为高质量参考样本。"
+    return payload
+
+
+def write_feedback_fallback(payload: dict[str, Any]) -> str:
+    try:
+        FEEDBACK_FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        fallback_payload = {**payload, "storage_target": "local_jsonl_fallback"}
+        with FEEDBACK_FALLBACK_PATH.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(fallback_payload, ensure_ascii=False) + "\n")
+        return str(FEEDBACK_FALLBACK_PATH.relative_to(PROJECT_ROOT))
+    except Exception:
+        return ""
+
+
+def persist_reference_feedback(record: dict[str, Any]) -> tuple[bool, str]:
+    payload = build_feedback_payload(record)
+    url = st.session_state.get("qdrant_url", "")
+    api_key = st.session_state.get("qdrant_api_key", "")
+    if url and api_key and QdrantClient is not None and qdrant_models is not None:
+        try:
+            client = QdrantClient(url=url, api_key=api_key)
+            ensure_feedback_collection(client)
+            client.upsert(
+                collection_name=FEEDBACK_COLLECTION_NAME,
+                points=[
+                    qdrant_models.PointStruct(
+                        id=payload["feedback_id"],
+                        vector=[1.0],
+                        payload={**payload, "storage_target": "qdrant"},
+                    )
+                ],
+            )
+            if payload["queue_status"] == "needs_review":
+                return True, "已写入知识库优化队列"
+            return True, "已写入引用反馈队列"
+        except Exception:
+            fallback_path = write_feedback_fallback(payload)
+            if fallback_path:
+                return False, "已记录到反馈兜底队列"
+            return False, "反馈暂未入库，请稍后重试"
+
+    fallback_path = write_feedback_fallback(payload)
+    if fallback_path:
+        return False, "已记录到反馈兜底队列"
+    return False, "反馈暂未入库，请稍后重试"
 
 
 def payload_to_case(payload: dict[str, Any], score: float, fallback_title: str = "参考案例") -> dict[str, Any]:
@@ -1220,10 +1327,14 @@ def build_reference_feedback_record(
     decision: str,
 ) -> dict[str, Any]:
     brief = result["brief"]
+    features = [line.strip() for line in brief.features.splitlines() if line.strip()]
     return {
         "result_id": result.get("result_id", "current"),
         "content_type": brief.content_type,
         "product_name": brief.product_name,
+        "user_need": brief.user_need,
+        "features": features,
+        "retrieval_source": result.get("retrieval_source", ""),
         "reference_rank": index,
         "reference_title": case.get("title", "参考案例"),
         "retrieval_score": case.get("score", 0),
@@ -1248,6 +1359,16 @@ def update_reference_feedback(
         case,
         decision,
     )
+    persisted = st.session_state.reference_feedback_persisted.get(feedback_key, {})
+    if persisted.get("decision") == decision:
+        return
+    ok, status_message = persist_reference_feedback(st.session_state.reference_feedback[feedback_key])
+    st.session_state.reference_feedback_persisted[feedback_key] = {
+        "decision": decision,
+        "ok": ok,
+        "status": status_message,
+    }
+    st.session_state.reference_feedback_status[feedback_key] = status_message
 
 
 def current_reference_feedback(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1290,7 +1411,15 @@ def render_reference_cases(result: dict[str, Any]) -> None:
             f"已记录 {len(feedback_rows)} 条引用反馈：采用 {used_count} 条，不相关 {irrelevant_count} 条。"
         )
         if irrelevant_count:
-            st.warning("存在不相关引用，后续应进入知识库补充或检索标签优化。")
+            st.warning("存在不相关引用，已进入知识库优化队列。")
+        status_messages = []
+        for index in range(1, len(visible_cases) + 1):
+            feedback_key = f"{result_id}:{index}"
+            status = st.session_state.reference_feedback_status.get(feedback_key)
+            if status and status not in status_messages:
+                status_messages.append(status)
+        if status_messages:
+            st.caption("入库状态：" + "；".join(status_messages))
         st.download_button(
             "下载本次引用反馈",
             data=json.dumps(feedback_rows, ensure_ascii=False, indent=2),

@@ -7,6 +7,7 @@ flowchart TD
     UI["Streamlit 中文产品界面"] --> Brief["Brief 结构化输入"]
     Brief --> Retrieval["Qdrant 知识库检索"]
     Retrieval --> References["Top 3 引用案例"]
+    References --> Feedback["引用反馈队列"]
     Retrieval --> Prompt["生成 Prompt 组装"]
     Brief --> Prompt
     Prompt --> Draft["DeepSeek 草稿 Agent"]
@@ -15,6 +16,7 @@ flowchart TD
     Revise --> Review2["终审 Agent"]
     Review2 --> Output["最终稿 / 审核维度 / 综合评分 / 人审意见"]
     References --> Output
+    Feedback --> Ops["知识库优化 / 测试集回流"]
 ```
 
 ## 2. 模块拆分
@@ -24,6 +26,7 @@ flowchart TD
 | Streamlit UI | 提供可直接体验的中文产品界面 |
 | Brief Builder | 将用户输入结构化为生成上下文 |
 | Qdrant Retrieval | 检索历史案例、产品事实、合规规则和审核标准 |
+| Reference Feedback Queue | 记录采用、不采用、不相关反馈，将不相关引用进入优化队列 |
 | Draft Agent | 生成 Blog / EDM 初稿 |
 | Review Agent | 按固定维度给出评分、问题和建议 |
 | Revision Agent | 根据一审结果自动改稿 |
@@ -46,7 +49,9 @@ flowchart TD
 
 - `marketing_cases`: 历史 Blog / EDM 案例。
 - `marketing_knowledge_base`: 产品事实、品牌规则、合规规则、审核标准等知识。
+- `reference_feedback_queue`: 引用反馈队列，记录用户对 Top 3 引用的采用、不采用、不相关反馈。
 - 前台展示 Top 3 引用案例。
+- “不相关”反馈标记为 `needs_review`，用于 PM 后续补案例、改标签、调检索或回流测试集。
 - 后台可合并案例库和知识库结果辅助生成。
 
 ## 5. 失败兜底

@@ -16,6 +16,7 @@ build/
 
 # Evaluation outputs
 evaluation/results/
+evaluation/feedback_queue/
 
 # Environment variables
 .env
