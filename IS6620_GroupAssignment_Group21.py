@@ -88,6 +88,8 @@ EVALUATION_DIMENSIONS = [
 ]
 
 OUTPUT_VIEWS = ["生成内容", "引用案例", "审核维度", "综合评分"]
+REFERENCE_FEEDBACK_OPTIONS = ["采用", "不采用", "不相关"]
+REFERENCE_FEEDBACK_SCORE = {"采用": 5, "不采用": 3, "不相关": 1}
 
 COMPLIANCE_RISK_PATTERNS = {
     "绝对化表达": [
@@ -160,6 +162,7 @@ def init_state() -> None:
         "interview_mode": read_bool_secret("INTERVIEW_MODE", True),
         "show_api_settings": read_bool_secret("SHOW_API_SETTINGS", False),
         "history": [],
+        "reference_feedback": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1043,13 +1046,99 @@ def render_empty_output(view: str) -> None:
     if view == "生成内容":
         st.info("填写左侧 Brief 后，点击“生成营销内容”，这里会显示二审后的最终稿。")
     elif view == "引用案例":
-        st.info("生成后显示本次从 Qdrant / 案例库检索到的 Top 3 引用案例。")
+        st.info("生成后显示本次从 Qdrant / 案例库检索到的 Top 3 引用案例，并支持标记采用、不采用或不相关。")
     elif view == "审核维度":
         st.caption("审核维度由系统固定；生成后显示一审和终审结果。")
         for dimension in EVALUATION_DIMENSIONS:
             st.write(f"- {dimension}")
     elif view == "综合评分":
         st.info("生成后显示终审综合评分、迭代建议和人审意见。")
+
+
+def scorecard_score(scorecard: dict[str, dict[str, Any]], name: str) -> int:
+    try:
+        return int(scorecard.get(name, {}).get("score", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def lowest_score_items(scorecard: dict[str, dict[str, Any]], limit: int = 3) -> list[tuple[str, dict[str, Any]]]:
+    return sorted(scorecard.items(), key=lambda item: int(item[1].get("score", 0)))[:limit]
+
+
+def build_score_improvements(
+    draft_scorecard: dict[str, dict[str, Any]],
+    final_scorecard: dict[str, dict[str, Any]],
+) -> list[str]:
+    improvements = []
+    for name in EVALUATION_DIMENSIONS:
+        draft_score = scorecard_score(draft_scorecard, name)
+        final_score = scorecard_score(final_scorecard, name)
+        if draft_score and final_score and final_score > draft_score:
+            improvements.append(f"{name}: {draft_score} → {final_score}")
+    return improvements
+
+
+def render_revision_comparison(result: dict[str, Any]) -> None:
+    draft_content = result.get("draft_content")
+    if not draft_content:
+        return
+
+    result_id = result.get("result_id", "current")
+    draft_scorecard = result.get("draft_scorecard", {})
+    final_scorecard = result.get("scorecard", {})
+    draft_score, draft_status = summarize_score(draft_scorecard)
+    final_score, final_status = summarize_score(final_scorecard)
+    improvements = build_score_improvements(draft_scorecard, final_scorecard)
+
+    st.divider()
+    st.markdown("**改前改后对比**")
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    with metric_col1:
+        st.metric("一审草稿", f"{draft_score}/10")
+        st.caption(draft_status)
+    with metric_col2:
+        st.metric("终审稿", f"{final_score}/10")
+        st.caption(final_status)
+    with metric_col3:
+        st.metric("提升维度", f"{len(improvements)} 个")
+        st.caption("对比一审与终审评分")
+
+    issue_col, suggestion_col = st.columns(2)
+    with issue_col:
+        st.markdown("**初稿问题**")
+        for name, detail in lowest_score_items(draft_scorecard):
+            st.write(f"- {name} {detail['score']}/10：{detail['issue']}")
+
+    with suggestion_col:
+        st.markdown("**一审建议**")
+        for name, detail in lowest_score_items(draft_scorecard):
+            st.write(f"- {name}：{detail['suggestion']}")
+
+    if improvements:
+        st.markdown("**本轮提升维度**")
+        st.write("；".join(improvements))
+    else:
+        st.caption("本轮终审维度保持稳定，改稿重点是清理风险表达并提升可发布性。")
+
+    with st.expander("查看初稿与修改后内容", expanded=False):
+        before_col, after_col = st.columns(2)
+        with before_col:
+            st.text_area(
+                "初稿",
+                value=draft_content,
+                height=360,
+                disabled=True,
+                key=f"draft_compare_{result_id}",
+            )
+        with after_col:
+            st.text_area(
+                "修改后内容",
+                value=result.get("content", ""),
+                height=360,
+                disabled=True,
+                key=f"final_compare_{result_id}",
+            )
 
 
 def render_generated_content(result: dict[str, Any]) -> None:
@@ -1067,14 +1156,58 @@ def render_generated_content(result: dict[str, Any]) -> None:
         use_container_width=True,
         key="download_generated_content",
     )
-    if result.get("draft_content"):
-        with st.expander("查看草稿与一审后修改路径", expanded=False):
-            st.caption(f"草稿来源：{result.get('drafter_source', '草稿 Agent')}")
-            st.markdown(result["draft_content"])
-            draft_score, draft_status = summarize_score(result.get("draft_scorecard", {}))
-            st.caption(f"一审结论：{draft_score}/10 · {draft_status}")
-            for suggestion in build_iteration_plan(result.get("draft_scorecard", {})):
-                st.write(f"- {suggestion}")
+    render_revision_comparison(result)
+
+
+def reference_feedback_widget_key(result_id: str, index: int) -> str:
+    return f"reference_feedback_{result_id}_{index}"
+
+
+def build_reference_feedback_record(
+    result: dict[str, Any],
+    index: int,
+    case: dict[str, Any],
+    decision: str,
+) -> dict[str, Any]:
+    brief = result["brief"]
+    return {
+        "result_id": result.get("result_id", "current"),
+        "content_type": brief.content_type,
+        "product_name": brief.product_name,
+        "reference_rank": index,
+        "reference_title": case.get("title", "参考案例"),
+        "retrieval_score": case.get("score", 0),
+        "decision": decision,
+        "human_relevance_score_1_5": REFERENCE_FEEDBACK_SCORE.get(decision, ""),
+        "reference_excerpt": str(case.get("content", ""))[:220],
+    }
+
+
+def update_reference_feedback(
+    result: dict[str, Any],
+    index: int,
+    case: dict[str, Any],
+    decision: str | None,
+) -> None:
+    if not decision:
+        return
+    feedback_key = f"{result.get('result_id', 'current')}:{index}"
+    st.session_state.reference_feedback[feedback_key] = build_reference_feedback_record(
+        result,
+        index,
+        case,
+        decision,
+    )
+
+
+def current_reference_feedback(result: dict[str, Any]) -> list[dict[str, Any]]:
+    result_id = result.get("result_id", "current")
+    rows = []
+    for index, case in enumerate(result.get("cases", [])[:3], start=1):
+        decision = st.session_state.get(reference_feedback_widget_key(result_id, index))
+        if decision:
+            rows.append(build_reference_feedback_record(result, index, case, decision))
+    return rows
 
 
 def render_reference_cases(result: dict[str, Any]) -> None:
@@ -1085,11 +1218,39 @@ def render_reference_cases(result: dict[str, Any]) -> None:
 
     visible_cases = cases[:3]
     st.caption(f"参考来源：知识库；展示 Top {len(visible_cases)}")
+    st.caption("每条引用都可以标记为采用、不采用或不相关，用于沉淀人工引用相关性数据。")
+    result_id = result.get("result_id", "current")
     for index, case in enumerate(visible_cases, start=1):
         title = case.get("title", "参考案例")
         score = case.get("score", 0)
         with st.expander(f"{index}. {title} · 匹配度 {score}", expanded=index == 1):
             st.write(case.get("content", ""))
+            decision = st.segmented_control(
+                "引用反馈",
+                REFERENCE_FEEDBACK_OPTIONS,
+                key=reference_feedback_widget_key(result_id, index),
+            )
+            update_reference_feedback(result, index, case, decision)
+
+    feedback_rows = current_reference_feedback(result)
+    if feedback_rows:
+        used_count = sum(1 for row in feedback_rows if row["decision"] == "采用")
+        irrelevant_count = sum(1 for row in feedback_rows if row["decision"] == "不相关")
+        st.success(
+            f"已记录 {len(feedback_rows)} 条引用反馈：采用 {used_count} 条，不相关 {irrelevant_count} 条。"
+        )
+        if irrelevant_count:
+            st.warning("存在不相关引用，后续应进入知识库补充或检索标签优化。")
+        st.download_button(
+            "下载本次引用反馈",
+            data=json.dumps(feedback_rows, ensure_ascii=False, indent=2),
+            file_name=f"reference_feedback_{result_id}.json",
+            mime="application/json",
+            use_container_width=True,
+            key=f"download_reference_feedback_{result_id}",
+        )
+    else:
+        st.caption("还没有引用反馈。建议生成后至少标记 Top 3，方便后续做人工相关性评估。")
 
 
 def render_review_dimensions(result: dict[str, Any]) -> None:
@@ -1365,7 +1526,9 @@ with left:
                 human_review_notes = build_human_review_notes(brief, scorecard, score)
                 status.update(label="生成完成", state="complete", expanded=False)
 
+            result_id = str(int(time.time() * 1000))
             st.session_state.result = {
+                "result_id": result_id,
                 "brief": brief,
                 "draft_content": draft_content,
                 "content": content,
