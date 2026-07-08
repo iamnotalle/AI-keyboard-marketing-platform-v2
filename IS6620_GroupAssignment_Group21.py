@@ -90,6 +90,38 @@ EVALUATION_DIMENSIONS = [
 OUTPUT_VIEWS = ["生成内容", "引用案例", "审核维度", "综合评分"]
 REFERENCE_FEEDBACK_OPTIONS = ["采用", "不采用", "不相关"]
 REFERENCE_FEEDBACK_SCORE = {"采用": 5, "不采用": 3, "不相关": 1}
+LOW_SCORE_THRESHOLD = 7
+
+QUALITY_GAP_ACTIONS = {
+    "需求匹配": {
+        "material": "补充目标用户、使用场景、核心卖点优先级，以及每个功能对应的用户收益。",
+        "system_action": "下次生成时优先把产品特性转成场景化收益，并检查是否覆盖 Brief 中的核心诉求。",
+    },
+    "品牌安全": {
+        "material": "补充品牌禁用词、竞品替代表达、品牌语气边界和允许使用的术语。",
+        "system_action": "下次审核时扩大品牌安全词表，并在改稿阶段自动替换高风险竞品或不合适表达。",
+    },
+    "合规风险": {
+        "material": "补充目标市场邮件合规要求、绝对化表达清单、医疗化/功效化禁用表达。",
+        "system_action": "下次生成前先压低夸大承诺，改稿时把高风险表达替换成可验证、保守的产品收益。",
+    },
+    "事实一致性": {
+        "material": "补充真实产品参数、认证、保修、价格、优惠、用户评价等可追溯来源。",
+        "system_action": "下次生成时禁止新增未在 Brief 或知识库出现的参数、认证、保修和用户数据。",
+    },
+    "CTA 清晰度": {
+        "material": "补充不同营销目标对应的 CTA 示例，例如了解更多、加入等待名单、立即购买或查看产品页。",
+        "system_action": "下次按营销目标自动选择 CTA 强度，并检查正文结尾是否有明确下一步动作。",
+    },
+    "内容完整度": {
+        "material": "补充 Blog / EDM 的结构模板、最低信息要求、标题/正文/CTA 示例和渠道长度标准。",
+        "system_action": "下次按内容类型检查结构完整性，Blog 补足论证，EDM 控制篇幅并保留核心卖点。",
+    },
+    "参考依据": {
+        "material": "补充更贴近该 Brief 的历史案例、产品事实、品牌规则和可检索标签。",
+        "system_action": "下次优先优化 Qdrant 检索标签和 Top 3 引用质量，降低不相关案例进入生成上下文的概率。",
+    },
+}
 
 COMPLIANCE_RISK_PATTERNS = {
     "绝对化表达": [
@@ -1253,6 +1285,55 @@ def render_reference_cases(result: dict[str, Any]) -> None:
         st.caption("还没有引用反馈。建议生成后至少标记 Top 3，方便后续做人工相关性评估。")
 
 
+def build_low_score_explanations(scorecard: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for name, detail in sorted(scorecard.items(), key=lambda item: int(item[1].get("score", 0))):
+        score = int(detail.get("score", 0))
+        if score > LOW_SCORE_THRESHOLD:
+            continue
+        action = QUALITY_GAP_ACTIONS.get(
+            name,
+            {
+                "material": "补充该维度对应的产品资料、案例或审核规则。",
+                "system_action": "下次生成和审核时提高该维度权重，并沉淀为知识库优化待办。",
+            },
+        )
+        rows.append(
+            {
+                "dimension": name,
+                "score": score,
+                "reason": detail.get("issue", "该维度需要进一步人工判断。"),
+                "material": action["material"],
+                "system_action": action["system_action"],
+                "suggestion": detail.get("suggestion", "基于该维度继续优化。"),
+            }
+        )
+    return rows
+
+
+def render_low_score_explanations(scorecard: dict[str, dict[str, Any]]) -> None:
+    low_score_rows = build_low_score_explanations(scorecard)
+    st.markdown("**低分原因解释**")
+    if not low_score_rows:
+        st.success(f"没有低于或等于 {LOW_SCORE_THRESHOLD} 分的维度，本次内容主要进入人工终审确认。")
+        return
+
+    st.caption("系统把低分维度拆成原因、资料缺口和下一轮优化动作。")
+    for row in low_score_rows:
+        with st.expander(f"{row['dimension']} · {row['score']}/10", expanded=True):
+            reason_col, material_col, action_col = st.columns(3)
+            with reason_col:
+                st.markdown("**为什么低**")
+                st.write(row["reason"])
+            with material_col:
+                st.markdown("**需要补什么资料**")
+                st.write(row["material"])
+            with action_col:
+                st.markdown("**系统下次怎么改**")
+                st.write(row["system_action"])
+            st.caption(f"本次改写建议：{row['suggestion']}")
+
+
 def render_review_dimensions(result: dict[str, Any]) -> None:
     scorecard = result.get("scorecard", {})
     st.caption(
@@ -1295,6 +1376,8 @@ def render_overall_score(result: dict[str, Any]) -> None:
         metric_col3.metric("一审到终审", f"{draft_score} → {score}", delta=delta_label)
     else:
         metric_col3.metric("审核轮次", "双检双审")
+
+    render_low_score_explanations(result.get("scorecard", {}))
 
     iteration_plan = result.get("iteration_plan") or build_iteration_plan(result.get("scorecard", {}))
     if iteration_plan:
