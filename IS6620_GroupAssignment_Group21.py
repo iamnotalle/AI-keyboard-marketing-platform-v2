@@ -200,6 +200,7 @@ def init_state() -> None:
         "qdrant_api_key": read_secret("QDRANT_API_KEY"),
         "interview_mode": read_bool_secret("INTERVIEW_MODE", True),
         "show_api_settings": read_bool_secret("SHOW_API_SETTINGS", False),
+        "show_pm_backend": read_bool_secret("SHOW_PM_BACKEND", False),
         "history": [],
         "reference_feedback": {},
     }
@@ -1332,17 +1333,17 @@ def build_low_score_explanations(scorecard: dict[str, dict[str, Any]]) -> list[d
 
 def render_low_score_explanations(scorecard: dict[str, dict[str, Any]]) -> None:
     low_score_rows = build_low_score_explanations(scorecard)
-    st.markdown("**发布前质量诊断**")
+    st.markdown("**低分诊断**")
     if not low_score_rows:
         st.success(f"没有低于或等于 {LOW_SCORE_THRESHOLD} 分的维度，本次内容主要进入人工终审确认。")
         return
 
-    st.caption("以下内容面向发布前复核：先处理风险点，再决定是否补充资料或重新生成。")
+    st.caption("PM 内部使用：用于定位质量问题、补充知识库和优化审核规则。")
     for index, row in enumerate(low_score_rows):
         with st.expander(f"{row['dimension']} · {row['score']}/10", expanded=index == 0):
             reason_col, action_col = st.columns(2)
             with reason_col:
-                st.markdown("**风险点**")
+                st.markdown("**低分原因**")
                 st.write(row["reason"])
             with action_col:
                 st.markdown("**发布前建议**")
@@ -1350,6 +1351,36 @@ def render_low_score_explanations(scorecard: dict[str, dict[str, Any]]) -> None:
             st.markdown("**需要补充/确认的资料**")
             st.write(row["material"])
             st.caption(f"本次可执行建议：{row['suggestion']}")
+
+
+def render_publish_guidance(score: int, status_label: str, scorecard: dict[str, dict[str, Any]]) -> None:
+    low_score_rows = build_low_score_explanations(scorecard)
+    if score >= 8 and not low_score_rows:
+        st.success("发布建议：内容可以进入人工终审。发布前确认产品参数、落地页链接和目标市场合规要求即可。")
+        return
+
+    low_dimensions = "、".join(row["dimension"] for row in low_score_rows[:3])
+    if score >= 8:
+        st.warning(f"发布建议：整体可用，但建议人工复核 {low_dimensions} 后再发布。")
+    else:
+        st.warning(f"发布建议：暂不建议直接发布，需先复核 {low_dimensions or status_label}。")
+
+    if low_score_rows:
+        st.caption("详细诊断已记录到后台，用于后续质量优化。")
+
+
+def render_pm_backend_diagnosis(result: dict[str, Any]) -> None:
+    if not st.session_state.get("show_pm_backend"):
+        return
+
+    with st.expander("PM 后台诊断（内部）", expanded=False):
+        render_low_score_explanations(result.get("scorecard", {}))
+
+        iteration_plan = result.get("iteration_plan") or build_iteration_plan(result.get("scorecard", {}))
+        if iteration_plan:
+            st.markdown("**内部迭代建议**")
+            for index, suggestion in enumerate(iteration_plan, start=1):
+                st.write(f"{index}. {suggestion}")
 
 
 def render_review_dimensions(result: dict[str, Any]) -> None:
@@ -1395,19 +1426,15 @@ def render_overall_score(result: dict[str, Any]) -> None:
     else:
         metric_col3.metric("审核轮次", "双检双审")
 
-    render_low_score_explanations(result.get("scorecard", {}))
-
-    iteration_plan = result.get("iteration_plan") or build_iteration_plan(result.get("scorecard", {}))
-    if iteration_plan:
-        st.markdown("**优先迭代建议**")
-        for index, suggestion in enumerate(iteration_plan, start=1):
-            st.write(f"{index}. {suggestion}")
+    render_publish_guidance(score, status_label, result.get("scorecard", {}))
 
     human_review_notes = result.get("human_review_notes", [])
     if human_review_notes:
         st.markdown("**人审意见**")
         for index, note in enumerate(human_review_notes, start=1):
             st.write(f"{index}. {note}")
+
+    render_pm_backend_diagnosis(result)
 
 
 def render_output_panel(result: dict[str, Any] | None) -> None:
